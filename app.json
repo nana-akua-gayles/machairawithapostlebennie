@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "machaira",
+    "slug": "machaira",
+    "scheme": "machaira",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/machairabot.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/machairabot.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nanaakuagayles.machaira",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/machairabot.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.nanaakuagayles.machaira"
+    },
+    "web": {
+      "favicon": "./assets/images/machairabot.png"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-video"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e01fdb31-69f2-4e16-9481-d61d59146dde"
+      }
+    }
+  }
+}
