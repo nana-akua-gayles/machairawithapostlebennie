@@ -4,6 +4,7 @@ import { View, StyleSheet, ScrollView, Pressable, Alert, Dimensions } from 'reac
 import { AppText } from '../../components/AppText';
 import { User, Handshake, Settings, Globe2, Heart, BookOpenCheck, Quote, MicVocal } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../../context/ThemeContext'; 
 
 const { width } = Dimensions.get('window');
 
@@ -41,17 +42,18 @@ const QuoteItem = memo(({ item }) => (
 const AUTOPLAY_INTERVAL = 7000;
 
 const TOOLS = [
-  { id: 'about', title: 'About Author', icon: User, sub: 'The heart and mind behind Machaira', color: 'red', screen: 'AboutAuthor' },
+  { id: 'about', title: 'About Author', icon: User, sub: 'The heart and mind behind Machaira', color: '#ff5252', screen: 'AboutAuthor' },
   { id: 'trivia', title: 'Bible Trivia / Game', icon: BookOpenCheck, sub: 'Test your biblical knowledge', color: '#f59e0b', screen: 'BibleTrivia' },
   { id: 'partner', title: 'Be a Partner', icon: Handshake, sub: 'A co-labourer with God', color: '#f59e0b', screen: 'Partner' },
-  { id: 'testimony', title: 'Testimonies', icon: MicVocal, sub: 'Share the workings of faith with the world', color: 'red', screen: 'Testimony' },
-  { id: 'social', title: 'Community', icon: Globe2, sub: 'Join Biblical conversations', color: 'red', screen: 'Community' },
+  { id: 'testimony', title: 'Testimonies', icon: MicVocal, sub: 'Share the workings of faith with the world', color: '#ff5252', screen: 'Testimony' },
+  { id: 'social', title: 'Community', icon: Globe2, sub: 'Join Biblical conversations', color: '#ff5252', screen: 'Community' },
   { id: 'handle', title: 'Follow Us', icon: Heart, sub: 'Social Media handles', color: '#f59e0b', screen: 'FollowUs' },
-  { id: 'settings', title: 'Settings', icon: Settings, sub: 'App preferences', color: '#352a48', screen: 'Settings' },
+  { id: 'settings', title: 'Settings', icon: Settings, sub: 'App preferences', color: '#a855f7', screen: 'Settings' },
 ];
 
 export const MoreScreen = () => {
   const navigation = useNavigation();
+  const { colors } = useTheme(); // <--- Integrated Theme Tokens
   const scrollRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -68,20 +70,16 @@ export const MoreScreen = () => {
 
   const handleCardPress = (tool) => {
     if (tool.screen) {
-      if (tool.screen === 'Testimony') {
-        navigation.navigate('Testimony');
-      } else {
-        navigation.navigate(tool.screen);
-      }
+      navigation.navigate(tool.screen);
     } else {
       Alert.alert('Coming Soon', `${tool.title} will be available in a future update.`);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.headerContainer}>
-        <AppText type="bold" style={styles.headerTitle}>More</AppText>
+        <AppText type="bold" style={[styles.headerTitle, { color: colors.text }]}>More</AppText>
         <ScrollView
           ref={scrollRef}
           horizontal
@@ -95,22 +93,29 @@ export const MoreScreen = () => {
           }}
         >
           {QUOTES.map((quote, index) => (
-            <QuoteItem key={index} item={quote} />
+            <QuoteItem key={`quote_${index}`} item={quote} />
           ))}
         </ScrollView>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.gallery}>
-          {TOOLS.map((tool) => (
-            <Pressable key={tool.id} style={styles.cardSmall} onPress={() => handleCardPress(tool)}>
-              <View style={[styles.iconWrapper, { backgroundColor: `${tool.color}10` }]}>
-                <tool.icon color={tool.color} size={24} />
-              </View>
-              <AppText type="bold" style={styles.cardLabel}>{tool.title}</AppText>
-              <AppText style={styles.cardSub} numberOfLines={2}>{tool.sub}</AppText>
-            </Pressable>
-          ))}
+          {TOOLS.map((tool) => {
+            const IconComponent = tool.icon;
+            return (
+              <Pressable
+                key={tool.id}
+                style={[styles.cardSmall, { backgroundColor: colors.card, borderColor: colors.border }]}
+                onPress={() => handleCardPress(tool)}
+              >
+                <View style={[styles.iconWrapper, { backgroundColor: `${tool.color}15` }]}>
+                  <IconComponent color={tool.color} size={24} />
+                </View>
+                <AppText type="bold" style={[styles.cardLabel, { color: colors.text }]}>{tool.title}</AppText>
+                <AppText style={[styles.cardSub, { color: colors.textSecondary }]} numberOfLines={2}>{tool.sub}</AppText>
+              </Pressable>
+            );
+          })}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -118,17 +123,17 @@ export const MoreScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1 },
   scroll: { padding: 18, paddingBottom: 120 },
   headerContainer: { width: '100%', marginBottom: 10, marginTop: 10 },
-  headerTitle: { fontSize: 32, color: '#0f172a', marginBottom: 15, paddingLeft: 20 },
+  headerTitle: { fontSize: 32, marginBottom: 15, paddingLeft: 20 },
   quoteWrapper: { width: width, paddingHorizontal: 40, alignItems: 'center', justifyContent: 'center' },
   quoteIcon: { marginBottom: 12, opacity: 0.6 },
   quoteText: { fontSize: 16, color: '#f65ca1', textAlign: 'center', lineHeight: 24 },
   authorName: { fontSize: 13, color: '#f65ca1', marginTop: 12, opacity: 0.8 },
-  gallery: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  cardSmall: { width: '48%', height: 150, backgroundColor: '#ffffff', borderRadius: 20, padding: 16, borderWidth: 1, marginBottom: 12, borderColor: '#f1f5f9' },
+  gallery: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 },
+  cardSmall: { width: '48%', height: 150, borderRadius: 20, padding: 16, borderWidth: 1 },
   iconWrapper: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  cardLabel: { fontSize: 14, color: '#0f172a' },
-  cardSub: { fontSize: 11, color: '#64748b', marginTop: 4 }
+  cardLabel: { fontSize: 14 },
+  cardSub: { fontSize: 11, marginTop: 4 }
 });

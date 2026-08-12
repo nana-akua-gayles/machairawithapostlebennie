@@ -6,7 +6,6 @@ import { useTheme } from '../../context/ThemeContext';
 import * as Application from 'expo-application';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-
 const SettingRow = ({ icon: Icon, title, onPress, type = 'action', value, onValueChange, destructive, colors = {}, isDark = false }) => (
   <TouchableOpacity 
     style={styles.row} 
@@ -44,15 +43,15 @@ export default function SettingsScreen({ navigation }) {
   const [isNotificationsEnabled, setIsNotificationsEnabled] = React.useState(true);
 
   const colors = {
-    background: isDark ? '#0f172a' : '#ffffff',
-    cardBg: isDark ? '#1e293b' : '#f8fafc',
-    titleText: isDark ? '#f8fafc' : '#0f172a',
-    bodyText: isDark ? '#cbd5e1' : '#334155',
-    subText: isDark ? '#94a3b8' : '#64748b',
-    iconColor: isDark ? '#cbd5e1' : '#352a48',
-    backBtnBg: isDark ? '#1e293b' : '#ffffff',
-    backBtnIcon: isDark ? '#f8fafc' : '#1e293b',
-    switchTrack: isDark ? '#ef4444' : '#352a48',
+    background: isDark ? '#09090b' : '#ffffff',
+    cardBg: isDark ? '#18181b' : '#f8fafc',
+    titleText: isDark ? '#ffffff' : '#0f172a',
+    bodyText: isDark ? '#d4d4d8' : '#334155',
+    subText: isDark ? '#a1a1aa' : '#64748b',
+    iconColor: isDark ? '#d4d4d8' : '#352a48',
+    backBtnBg: isDark ? '#27272a' : '#ffffff',
+    backBtnIcon: isDark ? '#ffffff' : '#1e293b',
+    switchTrack: isDark ? '#dc2626' : '#352a48',
   };
 
   return (
@@ -60,7 +59,7 @@ export default function SettingsScreen({ navigation }) {
       <View style={styles.header}>
         <Pressable 
           onPress={() => navigation.goBack()} 
-          style={[styles.backButtonContainer]}
+          style={[styles.backButtonContainer, { backgroundColor: colors.backBtnBg }]}
           android_ripple={{ color: isDark ? '#ffffff10' : '#00000010', borderless: true }}
         >
           <ChevronLeft size={24} color={colors.backBtnIcon} />
@@ -82,7 +81,6 @@ export default function SettingsScreen({ navigation }) {
           type="toggle" value={isDark} onValueChange={toggleTheme} 
         />
 
-
         <AppText style={[styles.groupLabel, { color: colors.subText }]}>About</AppText>
         <SettingRow colors={colors} isDark={isDark} icon={ShieldCheck} title="Privacy Policy" onPress={() => navigation.navigate('PrivacyPolicy')} />
         <SettingRow colors={colors} isDark={isDark} icon={Info} title={`Version ${Application.nativeApplicationVersion}`} onPress={() => navigation.navigate('Version')} />
@@ -96,7 +94,7 @@ export default function SettingsScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', padding: 20 },
-  backButtonContainer: { width: 44, height: 44, borderRadius: 22,  backgroundColor: '#f1f5f9',  alignItems: 'center', justifyContent: 'center', marginRight: 16 },
+  backButtonContainer: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
   title: { fontSize: 22 },
   scroll: { padding: 20 },
   groupLabel: { fontSize: 13, marginTop: 24, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },

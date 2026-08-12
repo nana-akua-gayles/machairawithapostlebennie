@@ -4,6 +4,7 @@ import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft, Trophy, Crown, User, Sparkles, Flame } from 'lucide-react-native';
 import { supabase } from '../../config/supabaseClient';
+import { useTheme } from '../../context/ThemeContext';
 import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
@@ -15,6 +16,24 @@ const LEADERBOARD_GAMES = [
 ];
 
 export const GameLeaderboard = ({ navigation }) => {
+  const { isDark } = useTheme();
+
+  const colors = {
+    background: isDark ? '#09090b' : '#f8fafc',
+    cardBg: isDark ? '#18181b' : '#ffffff',
+    centerCardBg: isDark ? '#1a1213' : '#fff8f8',
+    textMain: isDark ? '#ffffff' : '#0f172a',
+    subText: isDark ? '#a1a1aa' : '#64748b',
+    border: isDark ? '#27272a' : '#f1f5f9',
+    accent: isDark ? '#f87171' : '#e11d48', // Softer, muted rose-red
+    accentLight: isDark ? '#231416' : '#fff1f2',
+    accentBorder: isDark ? '#4c1d22' : '#fecdd3',
+    backBtnBg: isDark ? '#27272a' : '#f1f5f9',
+    myStatsBg: isDark ? '#121214' : '#0f172a',
+    dropdownBg: isDark ? '#18181b' : '#ffffff',
+    dropdownActiveBg: isDark ? '#231416' : '#fff1f2',
+  };
+
   const [loading, setLoading] = useState(true);
   const [selectedGameKey, setSelectedGameKey] = useState('threads');
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -31,7 +50,6 @@ export const GameLeaderboard = ({ navigation }) => {
       const { data: { session } } = await supabase.auth.getSession();
       const currentUserId = session?.user?.id;
 
-      // Fetch game sessions for the selected game type
       const { data: sessionsData, error: sessionsError } = await supabase
         .from('game_sessions')
         .select(`
@@ -47,7 +65,6 @@ export const GameLeaderboard = ({ navigation }) => {
 
       if (sessionsError) throw sessionsError;
 
-      // Aggregate scores per user
       const userScoresMap = {};
       
       if (sessionsData) {
@@ -68,7 +85,6 @@ export const GameLeaderboard = ({ navigation }) => {
         });
       }
 
-      // Convert map to array and sort descending by totalPoints
       const formattedProfiles = Object.values(userScoresMap).map(user => ({
         id: user.id,
         name: user.name,
@@ -100,7 +116,6 @@ export const GameLeaderboard = ({ navigation }) => {
             avatarUrl: userObj.avatarUrl
           });
         } else {
-          // If user hasn't played this category yet, fetch their profile details for display
           const { data: currentUserProfile } = await supabase
             .from('profiles')
             .select('id, name, avatar_url')
@@ -141,49 +156,49 @@ export const GameLeaderboard = ({ navigation }) => {
   const remainingUsers = topUsers.slice(3, 13);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-          <ChevronLeft size={24} color="#0f172a" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border, borderBottomWidth: isDark ? 1 : 0 }]}>
+        <TouchableOpacity onPress={handleBack} style={[styles.backBtn, { backgroundColor: colors.backBtnBg }]}>
+          <ChevronLeft size={24} color={colors.textMain} />
         </TouchableOpacity>
         <View style={styles.headerTitleRow}>
-          <AppText type="bold" style={styles.headerTitle}>LEADERSHIP DASHBOARD</AppText>
+          <AppText type="bold" style={[styles.headerTitle, { color: colors.textMain }]}>LEADERSHIP DASHBOARD</AppText>
         </View>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.heroSection}>
-          <View style={styles.heroBadge}>
-            <Flame size={14} color="#dc2626" />
-            <AppText type="bold" style={styles.heroBadgeText}>LIVE ARENA</AppText>
+          <View style={[styles.heroBadge, { backgroundColor: colors.accentLight }]}>
+            <Flame size={14} color={colors.accent} />
+            <AppText type="bold" style={[styles.heroBadgeText, { color: colors.accent }]}>LIVE ARENA</AppText>
           </View>
-          <AppText type="bold" style={styles.heroTitle}>The Scroll of Honor</AppText>
-          <AppText style={styles.heroSubtitle}>Devotion measured by truth and wisdom.</AppText>
+          <AppText type="bold" style={[styles.heroTitle, { color: colors.textMain }]}>The Scroll of Honor</AppText>
+          <AppText style={[styles.heroSubtitle, { color: colors.subText }]}>Devotion measured by truth and wisdom.</AppText>
         </View>
 
         <View style={styles.pickerWrapper}>
-          <AppText type="bold" style={styles.pickerLabel}>CHOOSE CATEGORY</AppText>
+          <AppText type="bold" style={[styles.pickerLabel, { color: colors.subText }]}>CHOOSE CATEGORY</AppText>
           <Pressable 
             onPress={() => {
               Haptics.selectionAsync();
               setDropdownOpen(prev => !prev);
             }} 
-            style={styles.dropdownBtn}
+            style={[styles.dropdownBtn, { backgroundColor: colors.cardBg, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}
           >
-            <AppText type="bold" style={styles.dropdownBtnText}>{currentCategoryTitle}</AppText>
-            <AppText style={styles.dropdownChevron}>{dropdownOpen ? '▲' : '▼'}</AppText>
+            <AppText type="bold" style={[styles.dropdownBtnText, { color: colors.textMain }]}>{currentCategoryTitle}</AppText>
+            <AppText style={[styles.dropdownChevron, { color: colors.subText }]}>{dropdownOpen ? '▲' : '▼'}</AppText>
           </Pressable>
 
           {dropdownOpen && (
-            <View style={styles.dropdownMenu}>
+            <View style={[styles.dropdownMenu, { backgroundColor: colors.dropdownBg, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
               {LEADERBOARD_GAMES.map(game => (
                 <Pressable 
                   key={game.key} 
-                  style={[styles.dropdownOption, selectedGameKey === game.key && styles.dropdownOptionActive]}
+                  style={[styles.dropdownOption, { borderBottomColor: colors.border }, selectedGameKey === game.key && { backgroundColor: colors.dropdownActiveBg }]}
                   onPress={() => handleSelectCategory(game.key)}
                 >
-                  <AppText type="bold" style={[styles.dropdownOptionText, selectedGameKey === game.key && styles.dropdownOptionTextActive]}>
+                  <AppText type="bold" style={[styles.dropdownOptionText, { color: colors.subText }, selectedGameKey === game.key && { color: colors.accent }]}>
                     {game.title}
                   </AppText>
                 </Pressable>
@@ -194,85 +209,85 @@ export const GameLeaderboard = ({ navigation }) => {
 
         {loading ? (
           <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color="#dc2626" />
-            <AppText style={styles.loaderText}>RETRIEVING RECORDS...</AppText>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <AppText style={[styles.loaderText, { color: colors.subText }]}>RETRIEVING RECORDS...</AppText>
           </View>
         ) : (
           <>
             <View style={styles.podiumWrapper}>
-              <View style={[styles.podiumColumn, styles.podiumSide]}>
-                <View style={styles.podiumAvatarCircle}>
+              <View style={[styles.podiumColumn, styles.podiumSide, { backgroundColor: colors.cardBg, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
+                <View style={[styles.podiumAvatarCircle, { backgroundColor: colors.accentLight, borderColor: colors.accent }]}>
                   {secondPlace?.avatarUrl ? (
                     <Image source={{ uri: secondPlace.avatarUrl }} style={styles.podiumAvatarImage} />
                   ) : (
-                    <AppText type="bold" style={styles.podiumAvatarInitial}>
+                    <AppText type="bold" style={[styles.podiumAvatarInitial, { color: colors.accent }]}>
                       {secondPlace ? secondPlace.name.charAt(0) : '2'}
                     </AppText>
                   )}
-                  <View style={styles.podiumRankBubbleSide}>
+                  <View style={[styles.podiumRankBubbleSide, { backgroundColor: colors.accent }]}>
                     <AppText type="bold" style={styles.podiumRankBubbleText}>2</AppText>
                   </View>
                 </View>
-                <AppText type="bold" numberOfLines={1} style={styles.podiumName}>
+                <AppText type="bold" numberOfLines={1} style={[styles.podiumName, { color: colors.textMain }]}>
                   {secondPlace ? secondPlace.name : '—'}
                 </AppText>
-                <AppText style={styles.podiumScore}>
+                <AppText style={[styles.podiumScore, { color: colors.accent }]}>
                   {secondPlace ? `${secondPlace.points} pts` : '0 pts'}
                 </AppText>
               </View>
 
-              <View style={[styles.podiumColumn, styles.podiumCenter]}>
+              <View style={[styles.podiumColumn, styles.podiumCenter, { backgroundColor: colors.centerCardBg, borderColor: colors.accentBorder, borderWidth: 1.5 }]}>
                 <View style={styles.crownGlow}>
-                  <Crown size={26} color="#dc2626" />
+                  <Crown size={26} color={colors.accent} />
                 </View>
-                <View style={styles.podiumAvatarCircleCenter}>
+                <View style={[styles.podiumAvatarCircleCenter, { backgroundColor: colors.accentLight, borderColor: colors.accent }]}>
                   {firstPlace?.avatarUrl ? (
                     <Image source={{ uri: firstPlace.avatarUrl }} style={styles.podiumAvatarImageCenter} />
                   ) : (
-                    <AppText type="bold" style={styles.podiumAvatarInitialCenter}>
+                    <AppText type="bold" style={[styles.podiumAvatarInitialCenter, { color: colors.accent }]}>
                       {firstPlace ? firstPlace.name.charAt(0) : '1'}
                     </AppText>
                   )}
-                  <View style={styles.podiumRankBubbleCenter}>
+                  <View style={[styles.podiumRankBubbleCenter, { backgroundColor: colors.accent }]}>
                     <AppText type="bold" style={styles.podiumRankBubbleText}>1</AppText>
                   </View>
                 </View>
-                <AppText type="bold" numberOfLines={1} style={styles.podiumNameCenter}>
+                <AppText type="bold" numberOfLines={1} style={[styles.podiumNameCenter, { color: colors.textMain }]}>
                   {firstPlace ? firstPlace.name : '—'}
                 </AppText>
-                <AppText type="bold" style={styles.podiumScoreCenter}>
+                <AppText type="bold" style={[styles.podiumScoreCenter, { color: colors.accent }]}>
                   {firstPlace ? `${firstPlace.points} pts` : '0 pts'}
                 </AppText>
               </View>
 
-              <View style={[styles.podiumColumn, styles.podiumSide]}>
-                <View style={styles.podiumAvatarCircle}>
+              <View style={[styles.podiumColumn, styles.podiumSide, { backgroundColor: colors.cardBg, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
+                <View style={[styles.podiumAvatarCircle, { backgroundColor: colors.accentLight, borderColor: colors.accent }]}>
                   {thirdPlace?.avatarUrl ? (
                     <Image source={{ uri: thirdPlace.avatarUrl }} style={styles.podiumAvatarImage} />
                   ) : (
-                    <AppText type="bold" style={styles.podiumAvatarInitial}>
+                    <AppText type="bold" style={[styles.podiumAvatarInitial, { color: colors.accent }]}>
                       {thirdPlace ? thirdPlace.name.charAt(0) : '3'}
                     </AppText>
                   )}
-                  <View style={styles.podiumRankBubbleSide}>
+                  <View style={[styles.podiumRankBubbleSide, { backgroundColor: colors.accent }]}>
                     <AppText type="bold" style={styles.podiumRankBubbleText}>3</AppText>
                   </View>
                 </View>
-                <AppText type="bold" numberOfLines={1} style={styles.podiumName}>
+                <AppText type="bold" numberOfLines={1} style={[styles.podiumName, { color: colors.textMain }]}>
                   {thirdPlace ? thirdPlace.name : '—'}
                 </AppText>
-                <AppText style={styles.podiumScore}>
+                <AppText style={[styles.podiumScore, { color: colors.accent }]}>
                   {thirdPlace ? `${thirdPlace.points} pts` : '0 pts'}
                 </AppText>
               </View>
             </View>
 
-            <View style={styles.myStatsCard}>
+            <View style={[styles.myStatsCard, { backgroundColor: colors.myStatsBg, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
               <View style={styles.myStatsLeft}>
-                <AppText type="bold" style={styles.myStatsHeader}>YOUR POSITION</AppText>
-                <AppText type="bold" style={styles.myStatsPointsVal}>{currentUserRankData.totalPoints} <AppText style={styles.myStatsPointsLabel}>pts</AppText></AppText>
+                <AppText type="bold" style={[styles.myStatsHeader, { color: colors.subText }]}>YOUR POSITION</AppText>
+                <AppText type="bold" style={[styles.myStatsPointsVal, { color: colors.textMain }]}>{currentUserRankData.totalPoints} <AppText style={[styles.myStatsPointsLabel, { color: colors.subText }]}>pts</AppText></AppText>
               </View>
-              <View style={styles.myStatsCenterAvatarBox}>
+              <View style={[styles.myStatsCenterAvatarBox, { backgroundColor: colors.accent }]}>
                 {currentUserRankData.avatarUrl ? (
                   <Image source={{ uri: currentUserRankData.avatarUrl }} style={styles.myStatsAvatarImage} />
                 ) : (
@@ -280,36 +295,36 @@ export const GameLeaderboard = ({ navigation }) => {
                 )}
               </View>
               <View style={styles.myStatsRight}>
-                <AppText type="bold" style={styles.myStatsHeaderRight}>GLOBAL RANK</AppText>
-                <AppText type="bold" style={styles.myStatsRankVal}>{currentUserRankData.rank}</AppText>
+                <AppText type="bold" style={[styles.myStatsHeaderRight, { color: colors.subText }]}>GLOBAL RANK</AppText>
+                <AppText type="bold" style={[styles.myStatsRankVal, { color: colors.accent }]}>{currentUserRankData.rank}</AppText>
               </View>
             </View>
 
-            <View style={styles.rankingsListContainer}>
-              <AppText type="bold" style={styles.rankingsListHeader}>ORDER OF MERIT</AppText>
+            <View style={[styles.rankingsListContainer, { backgroundColor: colors.cardBg, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
+              <AppText type="bold" style={[styles.rankingsListHeader, { color: colors.subText }]}>ORDER OF MERIT</AppText>
               {remainingUsers.length === 0 ? (
-                <AppText style={styles.emptyText}>The path is open for you to lead.</AppText>
+                <AppText style={[styles.emptyText, { color: colors.subText }]}>The path is open for you to lead.</AppText>
               ) : (
                 remainingUsers.map((user) => {
                   return (
-                    <View key={user.id} style={styles.rankRow}>
-                      <View style={styles.rankNumBadge}>
-                        <AppText type="bold" style={styles.rankNumText}>{user.rank}</AppText>
+                    <View key={user.id} style={[styles.rankRow, { borderBottomColor: colors.border }]}>
+                      <View style={[styles.rankNumBadge, { backgroundColor: colors.backBtnBg }]}>
+                        <AppText type="bold" style={[styles.rankNumText, { color: colors.subText }]}>{user.rank}</AppText>
                       </View>
-                      <View style={styles.rankAvatarContainer}>
+                      <View style={[styles.rankAvatarContainer, { backgroundColor: colors.accentLight }]}>
                         {user.avatarUrl ? (
                           <Image source={{ uri: user.avatarUrl }} style={styles.rankAvatarImage} />
                         ) : (
-                          <View style={styles.rankAvatarFallback}>
-                            <AppText type="bold" style={styles.rankAvatarFallbackText}>{user.name.charAt(0)}</AppText>
+                          <View style={[styles.rankAvatarFallback, { backgroundColor: colors.accentLight }]}>
+                            <AppText type="bold" style={[styles.rankAvatarFallbackText, { color: colors.accent }]}>{user.name.charAt(0)}</AppText>
                           </View>
                         )}
                       </View>
                       <View style={styles.rankInfo}>
-                        <AppText type="bold" numberOfLines={1} style={styles.rankName}>{user.name}</AppText>
-                        <AppText style={styles.rankPointsSub}>{user.points} points</AppText>
+                        <AppText type="bold" numberOfLines={1} style={[styles.rankName, { color: colors.textMain }]}>{user.name}</AppText>
+                        <AppText style={[styles.rankPointsSub, { color: colors.subText }]}>{user.points} points</AppText>
                       </View>
-                      <Trophy size={16} color="#94a3b8" />
+                      <Trophy size={16} color={colors.subText} />
                     </View>
                   );
                 })
@@ -323,68 +338,66 @@ export const GameLeaderboard = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
-  backBtn: { backgroundColor: '#f1f5f9', borderRadius: 20, padding: 8 },
+  backBtn: { borderRadius: 20, padding: 8 },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  headerTitle: { fontSize: 16, letterSpacing: 2, color: '#0f172a' },
+  headerTitle: { fontSize: 16, letterSpacing: 2 },
   scroll: { padding: 20, flexGrow: 1, paddingBottom: 50 },
   heroSection: { alignItems: 'center', marginBottom: 25, marginTop: 5 },
-  heroBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fee2e2', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20, gap: 6, marginBottom: 10 },
-  heroBadgeText: { fontSize: 10, color: '#dc2626', letterSpacing: 1.5 },
-  heroTitle: { fontSize: 28, color: '#0f172a', letterSpacing: 0.5, textAlign: 'center' },
-  heroSubtitle: { fontSize: 13, color: '#64748b', textAlign: 'center', marginTop: 7 },
+  heroBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20, gap: 6, marginBottom: 10 },
+  heroBadgeText: { fontSize: 10, letterSpacing: 1.5 },
+  heroTitle: { fontSize: 28, letterSpacing: 0.5, textAlign: 'center' },
+  heroSubtitle: { fontSize: 13, textAlign: 'center', marginTop: 7 },
   pickerWrapper: { marginBottom: 40, position: 'relative', zIndex: 20 },
-  pickerLabel: { fontSize: 10, color: '#64748b', letterSpacing: 1.5, marginBottom: 8, marginLeft: 4 },
-  dropdownBtn: { backgroundColor: '#ffffff', borderRadius: 16, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 2 },
-  dropdownBtnText: { fontSize: 14, color: '#0f172a', letterSpacing: 1 },
-  dropdownChevron: { fontSize: 10, color: '#64748b' },
-  dropdownMenu: { position: 'absolute', top: '115%', left: 0, right: 0, backgroundColor: '#ffffff', borderRadius: 16, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10, zIndex: 30 },
-  dropdownOption: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
-  dropdownOptionActive: { backgroundColor: '#fee2e2' },
-  dropdownOptionText: { fontSize: 13, color: '#64748b', letterSpacing: 0.5 },
-  dropdownOptionTextActive: { color: '#dc2626' },
+  pickerLabel: { fontSize: 10, letterSpacing: 1.5, marginBottom: 8, marginLeft: 4 },
+  dropdownBtn: { borderRadius: 16, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 2 },
+  dropdownBtnText: { fontSize: 14, letterSpacing: 1 },
+  dropdownChevron: { fontSize: 10 },
+  dropdownMenu: { position: 'absolute', top: '115%', left: 0, right: 0, borderRadius: 16, overflow: 'hidden', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10, zIndex: 30 },
+  dropdownOption: { padding: 16, borderBottomWidth: 1 },
+  dropdownOptionText: { fontSize: 13, letterSpacing: 0.5 },
   loaderContainer: { marginTop: 80, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  loaderText: { fontSize: 11, letterSpacing: 2, color: '#64748b' },
+  loaderText: { fontSize: 11, letterSpacing: 2 },
   podiumWrapper: { flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', marginBottom: 30, gap: 12 },
-  podiumColumn: { flex: 1, alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 20, paddingVertical: 18, paddingHorizontal: 8, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 2 },
+  podiumColumn: { flex: 1, alignItems: 'center', borderRadius: 20, paddingVertical: 18, paddingHorizontal: 8, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 2 },
   podiumSide: { transform: [{ translateY: 12 }] },
-  podiumCenter: { backgroundColor: '#fff5f5', borderRadius: 24, paddingVertical: 24, borderWidth: 1.5, borderColor: '#fecaca', shadowColor: '#dc2626', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
+  podiumCenter: { borderRadius: 24, paddingVertical: 24, shadowColor: '#e11d48', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 },
   crownGlow: { marginBottom: -4 },
-  podiumAvatarCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#fee2e2', justifyContent: 'center', alignItems: 'center', position: 'relative', marginBottom: 10, borderWidth: 1.5, borderColor: '#ef4444', overflow: 'visible' },
-  podiumAvatarCircleCenter: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fee2e2', justifyContent: 'center', alignItems: 'center', position: 'relative', marginBottom: 10, borderWidth: 1.5, borderColor: '#ef4444', overflow: 'visible' },
+  podiumAvatarCircle: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', position: 'relative', marginBottom: 10, borderWidth: 1.5, overflow: 'visible' },
+  podiumAvatarCircleCenter: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', position: 'relative', marginBottom: 10, borderWidth: 1.5, overflow: 'visible' },
   podiumAvatarImage: { width: '100%', height: '100%', borderRadius: 25 },
   podiumAvatarImageCenter: { width: '100%', height: '100%', borderRadius: 30 },
-  podiumAvatarInitial: { fontSize: 18, color: '#dc2626' },
-  podiumAvatarInitialCenter: { fontSize: 22, color: '#dc2626' },
-  podiumRankBubbleSide: { position: 'absolute', bottom: -4, right: -4, backgroundColor: '#dc2626', width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', zIndex: 10, borderWidth: 1.5, borderColor: '#ffffff' },
-  podiumRankBubbleCenter: { position: 'absolute', bottom: -4, right: -4, backgroundColor: '#dc2626', width: 22, height: 22, borderRadius: 11, justifyContent: 'center', alignItems: 'center', zIndex: 10, borderWidth: 1.5, borderColor: '#ffffff' },
+  podiumAvatarInitial: { fontSize: 18 },
+  podiumAvatarInitialCenter: { fontSize: 22 },
+  podiumRankBubbleSide: { position: 'absolute', bottom: -4, right: -4, width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', zIndex: 10, borderWidth: 1.5, borderColor: '#ffffff' },
+  podiumRankBubbleCenter: { position: 'absolute', bottom: -4, right: -4, width: 22, height: 22, borderRadius: 11, justifyContent: 'center', alignItems: 'center', zIndex: 10, borderWidth: 1.5, borderColor: '#ffffff' },
   podiumRankBubbleText: { fontSize: 10, color: '#ffffff' },
-  podiumName: { fontSize: 11, color: '#0f172a', textAlign: 'center', marginBottom: 2, width: '100%' },
-  podiumNameCenter: { fontSize: 12, color: '#0f172a', textAlign: 'center', marginBottom: 2, width: '100%' },
-  podiumScore: { fontSize: 10, color: '#dc2626', fontWeight: 'bold' },
-  podiumScoreCenter: { fontSize: 11, color: '#dc2626' },
-  myStatsCard: { backgroundColor: '#0f172a', borderRadius: 20, padding: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 30, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 5 },
+  podiumName: { fontSize: 11, textAlign: 'center', marginBottom: 2, width: '100%' },
+  podiumNameCenter: { fontSize: 12, textAlign: 'center', marginBottom: 2, width: '100%' },
+  podiumScore: { fontSize: 10, fontWeight: 'bold' },
+  podiumScoreCenter: { fontSize: 11 },
+  myStatsCard: { borderRadius: 20, padding: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 30, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 5 },
   myStatsLeft: { flex: 1 },
-  myStatsHeader: { fontSize: 9, color: '#94a3b8', letterSpacing: 1.5, marginBottom: 4 },
-  myStatsPointsVal: { fontSize: 22, color: '#ffffff' },
-  myStatsPointsLabel: { fontSize: 12, color: '#94a3b8', fontWeight: 'normal' },
-  myStatsCenterAvatarBox: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#dc2626', justifyContent: 'center', alignItems: 'center', marginHorizontal: 10, overflow: 'hidden' },
+  myStatsHeader: { fontSize: 9, letterSpacing: 1.5, marginBottom: 4 },
+  myStatsPointsVal: { fontSize: 22 },
+  myStatsPointsLabel: { fontSize: 12, fontWeight: 'normal' },
+  myStatsCenterAvatarBox: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginHorizontal: 10, overflow: 'hidden' },
   myStatsAvatarImage: { width: '100%', height: '100%' },
   myStatsRight: { flex: 1, alignItems: 'flex-end' },
-  myStatsHeaderRight: { fontSize: 9, color: '#94a3b8', letterSpacing: 1.5, marginBottom: 4 },
-  myStatsRankVal: { fontSize: 22, color: '#f87171' },
-  rankingsListContainer: { backgroundColor: '#ffffff', borderRadius: 20, padding: 18, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3 },
-  rankingsListHeader: { fontSize: 10, color: '#64748b', letterSpacing: 1.5, marginBottom: 12, marginLeft: 4 },
-  emptyText: { fontSize: 12, color: '#64748b', textAlign: 'center', paddingVertical: 20 },
-  rankRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
-  rankNumBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  rankNumText: { fontSize: 11, color: '#64748b' },
-  rankAvatarContainer: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#fee2e2', justifyContent: 'center', alignItems: 'center', marginRight: 12, overflow: 'hidden' },
+  myStatsHeaderRight: { fontSize: 9, letterSpacing: 1.5, marginBottom: 4 },
+  myStatsRankVal: { fontSize: 22 },
+  rankingsListContainer: { borderRadius: 20, padding: 18, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3 },
+  rankingsListHeader: { fontSize: 10, letterSpacing: 1.5, marginBottom: 12, marginLeft: 4 },
+  emptyText: { fontSize: 12, textAlign: 'center', paddingVertical: 20 },
+  rankRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1 },
+  rankNumBadge: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  rankNumText: { fontSize: 11 },
+  rankAvatarContainer: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginRight: 12, overflow: 'hidden' },
   rankAvatarImage: { width: '100%', height: '100%' },
-  rankAvatarFallback: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: '#fee2e2' },
-  rankAvatarFallbackText: { fontSize: 13, color: '#dc2626' },
+  rankAvatarFallback: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
+  rankAvatarFallbackText: { fontSize: 13 },
   rankInfo: { flex: 1, minWidth: 0 },
-  rankName: { fontSize: 13, color: '#0f172a' },
-  rankPointsSub: { fontSize: 10, color: '#64748b', marginTop: 1 }
+  rankName: { fontSize: 13 },
+  rankPointsSub: { fontSize: 10, marginTop: 1 }
 });

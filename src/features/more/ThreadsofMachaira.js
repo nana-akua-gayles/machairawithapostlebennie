@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView, Animated } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView, Animated, useColorScheme } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CheckCircle2, XCircle, Sparkles, Trophy, RotateCcw, ArrowRight } from 'lucide-react-native';
@@ -7,8 +7,10 @@ import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
 import { supabase } from '../../config/supabaseClient';
 
-
 export const ThreadsofMachaira = ({ navigation, route }) => {
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+
   const { stageId, stage_id, id, stageNumber } = route?.params || {};
   const activeStageId = stageId || stage_id || id;
 
@@ -57,7 +59,7 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
 
     return () => {
       if (backgroundSound) {
-        backgroundSound.unloadAsync();
+        backgroundSound.unloadAsync().catch(() => {});
       }
     };
   }, []);
@@ -114,12 +116,21 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
         if (Array.isArray(stageRecord.questions)) {
           fetchedQuestions = stageRecord.questions;
         } else if (typeof stageRecord.questions === 'string') {
-          fetchedQuestions = JSON.parse(stageRecord.questions);
+          try {
+            fetchedQuestions = JSON.parse(stageRecord.questions);
+          } catch (e) {
+            fetchedQuestions = [];
+          }
         }
       }
 
       const randomizedQuestions = shuffleArray(fetchedQuestions).map(q => {
-        let parsedOpts = Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]');
+        let parsedOpts = [];
+        try {
+          parsedOpts = Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]');
+        } catch (e) {
+          parsedOpts = [];
+        }
         
         const rawTexts = parsedOpts.map(opt => opt.replace(/^[A-D]\)\s*/, ''));
         const shuffledTexts = shuffleArray(rawTexts);
@@ -221,7 +232,12 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
 
   const handleRestart = () => {
     const randomizedQuestions = shuffleArray(questions).map(q => {
-      let parsedOpts = Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]');
+      let parsedOpts = [];
+      try {
+        parsedOpts = Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]');
+      } catch (e) {
+        parsedOpts = [];
+      }
       const rawTexts = parsedOpts.map(opt => opt.replace(/^[A-D]\)\s*/, ''));
       const shuffledTexts = shuffleArray(rawTexts);
       const prefixes = ['A) ', 'B) ', 'C) ', 'D) '];
@@ -243,10 +259,12 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
     gameStartRef.current = Date.now();
   };
 
+  const dynamicStyles = getStyles(isDarkMode);
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
+      <SafeAreaView style={dynamicStyles.container}>
+        <View style={dynamicStyles.center}>
           <ActivityIndicator size="large" color="#e11d48" />
         </View>
       </SafeAreaView>
@@ -255,13 +273,13 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
 
   if (questions.length === 0) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <View style={styles.emptyBadge}>
+      <SafeAreaView style={dynamicStyles.container}>
+        <View style={dynamicStyles.center}>
+          <View style={dynamicStyles.emptyBadge}>
             <Sparkles size={24} color="#e11d48" />
           </View>
-          <AppText type="bold" style={styles.emptyTitle}>STAGE 0{stageNumber || 1}</AppText>
-          <AppText style={styles.emptyText}>No questions dropped for this stage yet. Stay tuned.</AppText>
+          <AppText type="bold" style={dynamicStyles.emptyTitle}>STAGE 0{stageNumber || 1}</AppText>
+          <AppText style={dynamicStyles.emptyText}>No questions dropped for this stage yet. Stay tuned.</AppText>
         </View>
       </SafeAreaView>
     );
@@ -273,35 +291,35 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
     const displayBonus = speedBonusTotal.toFixed(3);
 
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.scoreContainer}>
-          <View style={styles.trophyBadge}>
+      <SafeAreaView style={dynamicStyles.container}>
+        <View style={dynamicStyles.scoreContainer}>
+          <View style={dynamicStyles.trophyBadge}>
             <Trophy size={32} color="#e11d48" />
           </View>
 
-          <AppText type="bold" style={styles.scoreHeader}>GLORY!</AppText>
-          <AppText style={styles.scoreSubHeader}>STAGE 0{stageNumber || 1} COMPLETED</AppText>
+          <AppText type="bold" style={dynamicStyles.scoreHeader}>GLORY!</AppText>
+          <AppText style={dynamicStyles.scoreSubHeader}>STAGE 0{stageNumber || 1} COMPLETED</AppText>
 
-          <View style={styles.scoreCard}>
-            <View style={styles.scoreRow}>
-              <AppText style={styles.scoreLabelText}>BASE SCORE</AppText>
-              <AppText type="bold" style={styles.scoreValueText}>{integerBaseScore} / {maxPossibleScore}</AppText>
+          <View style={dynamicStyles.scoreCard}>
+            <View style={dynamicStyles.scoreRow}>
+              <AppText style={dynamicStyles.scoreLabelText}>BASE SCORE</AppText>
+              <AppText type="bold" style={dynamicStyles.scoreValueText}>{integerBaseScore} / {maxPossibleScore}</AppText>
             </View>
-            <View style={styles.scoreDivider} />
-            <View style={styles.scoreRow}>
-              <AppText style={styles.scoreLabelText}>SPEED BONUS</AppText>
-              <AppText type="bold" style={styles.scoreValueText}>+{displayBonus}</AppText>
+            <View style={dynamicStyles.scoreDivider} />
+            <View style={dynamicStyles.scoreRow}>
+              <AppText style={dynamicStyles.scoreLabelText}>SPEED BONUS</AppText>
+              <AppText type="bold" style={dynamicStyles.scoreValueText}>+{displayBonus}</AppText>
             </View>
           </View>
 
-          <View style={styles.scoreActions}>
-            <TouchableOpacity style={styles.retryBtn} onPress={handleRestart} activeOpacity={0.85}>
-              <RotateCcw size={18} color="#352a48" style={{ marginRight: 8 }} />
-              <AppText type="bold" style={styles.retryBtnText}>REPLAY</AppText>
+          <View style={dynamicStyles.scoreActions}>
+            <TouchableOpacity style={dynamicStyles.retryBtn} onPress={handleRestart} activeOpacity={0.85}>
+              <RotateCcw size={18} color={isDarkMode ? '#ffffff' : '#352a48'} style={{ marginRight: 8 }} />
+              <AppText type="bold" style={dynamicStyles.retryBtnText}>REPLAY</AppText>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.proceedBtn} onPress={() => navigation.goBack()} activeOpacity={0.85}>
-              <AppText type="bold" style={styles.proceedBtnText}>NEXT QUIZ</AppText>
+            <TouchableOpacity style={dynamicStyles.proceedBtn} onPress={() => navigation.goBack()} activeOpacity={0.85}>
+              <AppText type="bold" style={dynamicStyles.proceedBtnText}>NEXT QUIZ</AppText>
               <ArrowRight size={18} color="#ffffff" style={{ marginLeft: 8 }} />
             </TouchableOpacity>
           </View>
@@ -326,32 +344,32 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Animated.View style={[styles.innerContainer, { transform: [{ translateY: slideAnim }] }]}>
+    <SafeAreaView style={dynamicStyles.container}>
+      <Animated.View style={[dynamicStyles.innerContainer, { transform: [{ translateY: slideAnim }] }]}>
         
         {/* Top Bar Header */}
-        <View style={styles.headerRow}>
-          <View style={styles.stageTag}>
+        <View style={dynamicStyles.headerRow}>
+          <View style={dynamicStyles.stageTag}>
             <Sparkles size={12} color="#e11d48" />
-            <AppText type="bold" style={styles.stageTagText}>STAGE 0{stageNumber || 1}</AppText>
+            <AppText type="bold" style={dynamicStyles.stageTagText}>STAGE 0{stageNumber || 1}</AppText>
           </View>
-          <AppText type="bold" style={styles.counterText}>
-            {currentIndex + 1} <AppText style={styles.counterTotal}>/ {questions.length}</AppText>
+          <AppText type="bold" style={dynamicStyles.counterText}>
+            {currentIndex + 1} <AppText style={dynamicStyles.counterTotal}>/ {questions.length}</AppText>
           </AppText>
         </View>
 
         {/* Clean Progress Bar */}
-        <View style={styles.progressBarTrack}>
-          <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+        <View style={dynamicStyles.progressBarTrack}>
+          <View style={[dynamicStyles.progressBarFill, { width: `${progressPercent}%` }]} />
         </View>
 
         {/* Main Quote Card */}
-        <View style={styles.quoteCard}>
-          <AppText style={styles.quoteText}>{currentQuestion?.question || currentQuestion?.quote}</AppText>
+        <View style={dynamicStyles.quoteCard}>
+          <AppText style={dynamicStyles.quoteText}>{currentQuestion?.question || currentQuestion?.quote}</AppText>
         </View>
 
         {/* Options Stack */}
-        <ScrollView contentContainerStyle={styles.optionsList} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={dynamicStyles.optionsList} showsVerticalScrollIndicator={false}>
           {parsedOptions.map((opt, index) => {
             const isSelected = selectedOption === opt;
             const cleanOpt = opt.replace(/^[A-D]\)\s*/, '').trim().toLowerCase();
@@ -359,20 +377,20 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
             const cleanTarget = targetAnswer.replace(/^[A-D]\)\s*/, '').trim().toLowerCase();
             const isCorrectAnswer = cleanOpt === cleanTarget;
 
-            let optionStyle = styles.optionCard;
-            let textStyle = styles.optionText;
+            let optionStyle = dynamicStyles.optionCard;
+            let textStyle = dynamicStyles.optionText;
 
             if (isAnswered) {
               if (isCorrectAnswer) {
-                optionStyle = [styles.optionCard, styles.correctCard];
-                textStyle = [styles.optionText, styles.correctText];
+                optionStyle = [dynamicStyles.optionCard, dynamicStyles.correctCard];
+                textStyle = [dynamicStyles.optionText, dynamicStyles.correctText];
               } else if (isSelected && !isCorrectAnswer) {
-                optionStyle = [styles.optionCard, styles.incorrectCard];
-                textStyle = [styles.optionText, styles.incorrectText];
+                optionStyle = [dynamicStyles.optionCard, dynamicStyles.incorrectCard];
+                textStyle = [dynamicStyles.optionText, dynamicStyles.incorrectText];
               }
             } else if (isSelected) {
-              optionStyle = [styles.optionCard, styles.selectedCard];
-              textStyle = [styles.optionText, styles.selectedText];
+              optionStyle = [dynamicStyles.optionCard, dynamicStyles.selectedCard];
+              textStyle = [dynamicStyles.optionText, dynamicStyles.selectedText];
             }
 
             return (
@@ -383,7 +401,7 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
                 activeOpacity={0.85}
                 disabled={isAnswered}
               >
-                <View style={styles.optionContent}>
+                <View style={dynamicStyles.optionContent}>
                   <AppText type="bold" style={textStyle}>{opt}</AppText>
                   {isAnswered && isCorrectAnswer && <CheckCircle2 size={22} color="#16a34a" />}
                   {isAnswered && isSelected && !isCorrectAnswer && <XCircle size={22} color="#dc2626" />}
@@ -397,272 +415,44 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#ffffff' 
-  },
-  innerContainer: { 
-    flex: 1, 
-    padding: 20, 
-    paddingBottom: 24 
-  },
-  center: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    padding: 20, 
-    backgroundColor: '#ffffff' 
-  },
-  emptyBadge: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#fff1f2',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#fecdd3'
-  },
-  emptyTitle: { 
-    fontSize: 22, 
-    color: '#352a48', 
-    marginBottom: 8,
-    letterSpacing: 1 
-  },
-  emptyText: { 
-    fontSize: 14, 
-    color: '#524b60', 
-    textAlign: 'center' 
-  },
-  headerRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    marginBottom: 12 
-  },
-  stageTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff1f2',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#fecdd3',
-    gap: 6
-  },
-  stageTagText: {
-    fontSize: 11,
-    letterSpacing: 2,
-    color: '#e11d48',
-    lineHeight: 14
-  },
-  counterText: {
-    fontSize: 14,
-    color: '#352a48',
-    letterSpacing: 1
-  },
-  counterTotal: {
-    color: '#8d859e',
-    fontSize: 13
-  },
-  progressBarTrack: {
-    height: 6,
-    backgroundColor: '#f1f0f5',
-    borderRadius: 3,
-    marginBottom: 24,
-    overflow: 'hidden'
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#e11d48',
-    borderRadius: 3
-  },
-  quoteCard: { 
-    backgroundColor: '#fcfcfd', 
-    borderWidth: 2, 
-    borderColor: '#352a48', 
-    borderRadius: 16, 
-    padding: 24, 
-    marginBottom: 24, 
-    shadowColor: '#352a48', 
-    shadowOffset: { width: 4, height: 4 }, 
-    shadowOpacity: 1, 
-    shadowRadius: 0, 
-    elevation: 3
-  },
-  quoteLabel: { 
-    fontSize: 10, 
-    letterSpacing: 3, 
-    color: '#e11d48', 
-    marginBottom: 12 
-  },
-  quoteText: { 
-    fontSize: 18, 
-    color: '#352a48', 
-    lineHeight: 28,
-    fontWeight: '600'
-  },
-  optionsList: { 
-    gap: 12, 
-    paddingBottom: 20 
-  },
-  optionCard: { 
-    backgroundColor: '#fcfcfd', 
-    borderWidth: 2, 
-    borderColor: '#352a48', 
-    borderRadius: 12, 
-    padding: 18,
-    shadowColor: '#352a48',
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 2
-  },
-  optionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%'
-  },
-  selectedCard: { 
-    backgroundColor: '#352a48' 
-  },
-  correctCard: { 
-    backgroundColor: '#f0fdf4', 
-    borderColor: '#16a34a' 
-  },
-  incorrectCard: { 
-    backgroundColor: '#fef2f2', 
-    borderColor: '#dc2626' 
-  },
-  optionText: { 
-    fontSize: 16, 
-    color: '#352a48',
-    flex: 1,
-    marginRight: 10
-  },
-  selectedText: { 
-    color: '#ffffff',
-    fontWeight: 'bold'
-  },
-  correctText: { 
-    color: '#16a34a' 
-  },
-  incorrectText: { 
-    color: '#dc2626' 
-  },
-  scoreContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: '#ffffff'
-  },
-  trophyBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#fff1f2',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 2,
-    borderColor: '#fecdd3'
-  },
-  scoreHeader: {
-    fontSize: 26,
-    color: '#352a48',
-    letterSpacing: -0.5,
-    marginBottom: 4
-  },
-  scoreSubHeader: {
-    fontSize: 12,
-    letterSpacing: 2,
-    color: '#524b60',
-    marginBottom: 28
-  },
-  scoreCard: {
-    width: '100%',
-    backgroundColor: '#fcfcfd',
-    borderWidth: 2,
-    borderColor: '#352a48',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 28,
-    shadowColor: '#352a48',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 3
-  },
-  scoreRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8
-  },
-  scoreDivider: {
-    height: 2,
-    backgroundColor: '#f1f0f5',
-    marginVertical: 8
-  },
-  scoreLabelText: {
-    fontSize: 13,
-    color: '#524b60',
-    letterSpacing: 1
-  },
-  scoreValueText: {
-    fontSize: 18,
-    color: '#352a48'
-  },
-  scoreActions: {
-    width: '100%',
-    flexDirection: 'row',
-    gap: 12
-  },
-  retryBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    height: 52,
-    backgroundColor: '#f4f3f7',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#352a48',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#352a48',
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 2
-  },
-  retryBtnText: {
-    fontSize: 13,
-    color: '#352a48',
-    letterSpacing: 1
-  },
-  proceedBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    height: 52,
-    backgroundColor: '#352a48',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#352a48',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#352a48',
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 2
-  },
-  proceedBtnText: {
-    fontSize: 13,
-    color: '#ffffff',
-    letterSpacing: 1
-  }
+const getStyles = (isDarkMode) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: isDarkMode ? '#121212' : '#ffffff' },
+  innerContainer: { flex: 1, padding: 20, paddingBottom: 24 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: isDarkMode ? '#121212' : '#ffffff' },
+  emptyBadge: { width: 56, height: 56, borderRadius: 28, backgroundColor: isDarkMode ? '#1f161a' : '#fff1f2', justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: isDarkMode ? '#4c1d28' : '#fecdd3' },
+  emptyTitle: { fontSize: 22, color: isDarkMode ? '#f3f0f7' : '#352a48', marginBottom: 8, letterSpacing: 1 },
+  emptyText: { fontSize: 14, color: isDarkMode ? '#aba4b8' : '#524b60', textAlign: 'center' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  stageTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDarkMode ? '#1f161a' : '#fff1f2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: isDarkMode ? '#4c1d28' : '#fecdd3', gap: 6 },
+  stageTagText: { fontSize: 11, letterSpacing: 2, color: '#e11d48', lineHeight: 14 },
+  counterText: { fontSize: 14, color: isDarkMode ? '#f3f0f7' : '#352a48', letterSpacing: 1 },
+  counterTotal: { color: isDarkMode ? '#aba4b8' : '#8d859e', fontSize: 13 },
+  progressBarTrack: { height: 6, backgroundColor: isDarkMode ? '#27252b' : '#f1f0f5', borderRadius: 3, marginBottom: 24, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#e11d48', borderRadius: 3 },
+  quoteCard: { backgroundColor: isDarkMode ? '#1a181f' : '#fcfcfd', borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', borderRadius: 16, padding: 24, marginBottom: 24, shadowColor: '#352a48', shadowOffset: { width: 4, height: 4 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 3 },
+  quoteText: { fontSize: 18, color: isDarkMode ? '#f3f0f7' : '#352a48', lineHeight: 28, fontWeight: '600' },
+  optionsList: { gap: 12, paddingBottom: 20 },
+  optionCard: { backgroundColor: isDarkMode ? '#1a181f' : '#fcfcfd', borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', borderRadius: 12, padding: 18, shadowColor: '#352a48', shadowOffset: { width: 2, height: 2 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 2 },
+  optionContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' },
+  selectedCard: { backgroundColor: isDarkMode ? '#4a3f61' : '#352a48' },
+  correctCard: { backgroundColor: isDarkMode ? '#062812' : '#f0fdf4', borderColor: '#16a34a' },
+  incorrectCard: { backgroundColor: isDarkMode ? '#381212' : '#fef2f2', borderColor: '#dc2626' },
+  optionText: { fontSize: 16, color: isDarkMode ? '#f3f0f7' : '#352a48', flex: 1, marginRight: 10 },
+  selectedText: { color: '#ffffff', fontWeight: 'bold' },
+  correctText: { color: '#16a34a' },
+  incorrectText: { color: '#dc2626' },
+  scoreContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: isDarkMode ? '#121212' : '#ffffff' },
+  trophyBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: isDarkMode ? '#1f161a' : '#fff1f2', justifyContent: 'center', alignItems: 'center', marginBottom: 20, borderWidth: 2, borderColor: isDarkMode ? '#4c1d28' : '#fecdd3' },
+  scoreHeader: { fontSize: 26, color: isDarkMode ? '#f3f0f7' : '#352a48', letterSpacing: -0.5, marginBottom: 4 },
+  scoreSubHeader: { fontSize: 12, letterSpacing: 2, color: isDarkMode ? '#aba4b8' : '#524b60', marginBottom: 28 },
+  scoreCard: { width: '100%', backgroundColor: isDarkMode ? '#1a181f' : '#fcfcfd', borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', borderRadius: 16, padding: 20, marginBottom: 28, shadowColor: '#352a48', shadowOffset: { width: 4, height: 4 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 3 },
+  scoreRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
+  scoreDivider: { height: 2, backgroundColor: isDarkMode ? '#27252b' : '#f1f0f5', marginVertical: 8 },
+  scoreLabelText: { fontSize: 13, color: isDarkMode ? '#aba4b8' : '#524b60', letterSpacing: 1 },
+  scoreValueText: { fontSize: 18, color: isDarkMode ? '#f3f0f7' : '#352a48' },
+  scoreActions: { width: '100%', flexDirection: 'row', gap: 12 },
+  retryBtn: { flex: 1, flexDirection: 'row', height: 52, backgroundColor: isDarkMode ? '#1a181f' : '#f4f3f7', borderRadius: 12, borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', alignItems: 'center', justifyContent: 'center', shadowColor: '#352a48', shadowOffset: { width: 2, height: 2 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 2 },
+  retryBtnText: { fontSize: 13, color: isDarkMode ? '#f3f0f7' : '#352a48', letterSpacing: 1 },
+  proceedBtn: { flex: 1, flexDirection: 'row', height: 52, backgroundColor: isDarkMode ? '#4a3f61' : '#352a48', borderRadius: 12, borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', alignItems: 'center', justifyContent: 'center', shadowColor: '#352a48', shadowOffset: { width: 2, height: 2 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 2 },
+  proceedBtnText: { fontSize: 13, color: '#ffffff', letterSpacing: 1 }
 });

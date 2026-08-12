@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
 import { Alert } from 'react-native';
-import { supabase } from '../../config/supabaseClient';
+import { supabase } from '../../../../config/supabaseClient';
 
 export const uploadGroupAvatar = async (groupId) => {
   try {
@@ -27,7 +27,6 @@ export const uploadGroupAvatar = async (groupId) => {
     const selectedAsset = pickerResult.assets[0];
     const fileExt = selectedAsset.uri.split('.').pop() || 'jpg';
     
-    // Using a static file name per group so it overwrites the exact same file in storage
     const fileName = `group_${groupId}.${fileExt}`;
     const filePath = `group_avatars/${fileName}`;
 

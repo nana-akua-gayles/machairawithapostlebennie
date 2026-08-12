@@ -8,17 +8,20 @@ export const useWrittenTestimonies = (currentUserId) => {
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
-  // Use refs to prevent callback re-creations and infinite re-render loops
   const lastCursorRef = useRef(null);
   const loadingRef = useRef(false);
   const hasMoreRef = useRef(true);
 
   const fetchTestimonies = useCallback(async (category = 'All', reset = false) => {
-    // Prevent simultaneous fetches or pulling past end of list
     if (loadingRef.current || (!reset && !hasMoreRef.current)) return;
 
     loadingRef.current = true;
     setLoading(true);
+
+    if (reset) {
+      lastCursorRef.current = null;
+      hasMoreRef.current = true;
+    }
 
     try {
       let query = supabase
@@ -26,18 +29,22 @@ export const useWrittenTestimonies = (currentUserId) => {
         .select(`
           *,
           profiles:user_id ( name, avatar_url ),
-          written_testimony_likes ( user_id ),
+          written_testimony_likes!left ( user_id ),
           written_testimony_comments ( id )
-        `)
+        `);
+
+      if (currentUserId) {
+        query = query.eq('written_testimony_likes.user_id', currentUserId);
+      }
+
+      query = query
         .order('created_at', { ascending: false })
         .limit(PAGE_SIZE);
 
-      // Filter by category
       if (category && category !== 'All') {
         query = query.eq('category', category);
       }
 
-      // Apply Cursor Pagination for infinite scroll
       if (!reset && lastCursorRef.current) {
         query = query.lt('created_at', lastCursorRef.current);
       }
@@ -51,7 +58,7 @@ export const useWrittenTestimonies = (currentUserId) => {
 
         return {
           ...item,
-          likes_count: item.likes_count ?? likesArr.length,
+          likes_count: item.likes_count ?? 0,
           comments_count: item.comments_count ?? commentsArr.length,
           hasLiked: likesArr.some(l => l.user_id === currentUserId)
         };
@@ -80,22 +87,26 @@ export const useWrittenTestimonies = (currentUserId) => {
     }
   }, [currentUserId]);
 
-  const toggleLike = async (testimonyId, currentlyLiked) => {
+  const toggleLike = async (testimonyId) => {
     if (!currentUserId) return;
 
-    // Optimistic UI Update
-    setTestimonies(prev => prev.map(post => {
-      if (post.id === testimonyId) {
-        return {
-          ...post,
-          hasLiked: !currentlyLiked,
-          likes_count: currentlyLiked ? Math.max(0, (post.likes_count || 0) - 1) : (post.likes_count || 0) + 1
-        };
-      }
-      return post;
-    }));
+    let wasLiked = false;
 
-    if (currentlyLiked) {
+    setTestimonies(prev =>
+      prev.map(item => {
+        if (item.id === testimonyId) {
+          wasLiked = !!item.hasLiked;
+          return {
+            ...item,
+            hasLiked: !wasLiked,
+            likes_count: wasLiked ? Math.max(0, (item.likes_count || 0) - 1) : (item.likes_count || 0) + 1,
+          };
+        }
+        return item;
+      })
+    );
+
+    if (wasLiked) {
       const { error } = await supabase
         .from('written_testimony_likes')
         .delete()
@@ -103,6 +114,7 @@ export const useWrittenTestimonies = (currentUserId) => {
         .eq('user_id', currentUserId);
 
       if (error) {
+        console.error('Error removing like:', error);
         setTestimonies(prev => prev.map(post => 
           post.id === testimonyId ? { ...post, hasLiked: true, likes_count: (post.likes_count || 0) + 1 } : post
         ));
@@ -113,6 +125,7 @@ export const useWrittenTestimonies = (currentUserId) => {
         .insert({ testimony_id: testimonyId, user_id: currentUserId });
 
       if (error) {
+        console.error('Error adding like:', error);
         setTestimonies(prev => prev.map(post => 
           post.id === testimonyId ? { ...post, hasLiked: false, likes_count: Math.max(0, (post.likes_count || 0) - 1) } : post
         ));

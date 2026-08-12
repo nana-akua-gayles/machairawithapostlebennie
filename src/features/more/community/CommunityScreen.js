@@ -1,16 +1,17 @@
-import React, { useEffect, useState, memo, useCallback } from 'react';
+import React, { useEffect, useState, memo, useCallback, useRef, useMemo } from 'react';
 import { ScrollView, StyleSheet, View, FlatList, TouchableOpacity, StatusBar, Alert, TextInput, Modal, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard, RefreshControl, Image } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { ChevronLeft, Users, ShieldCheck, Sparkles, X, CheckCircle2, Search, PlusCircle, RefreshCw } from 'lucide-react-native';
-import { AppText } from '../../components/AppText'; 
+import { AppText } from '../../../components/AppText'; 
 import { StorySection } from './StorySection';
-import { supabase } from '../../config/supabaseClient';
+import { supabase } from '../../../config/supabaseClient';
 
 const RED = '#E11D48';
 const DEEP_PURPLE = '#352a48';
-const PAGE_SIZE = 10;
+const STORAGE_KEY = '@viewed_statuses';
 
 const AnimatedPressable = ({ children, style, onPress }) => {
   const scale = useSharedValue(1);
@@ -49,7 +50,6 @@ const StudyGroupCard = memo(({ group, onJoin, onPressGroup }) => {
   const [isJoining, setIsJoining] = useState(false);
   const [membersCount, setMembersCount] = useState(group.members_count || 0);
 
-  // Sync state if parent props update
   useEffect(() => {
     setIsJoined(group.is_member || false);
     setMembersCount(group.members_count || 0);
@@ -113,12 +113,11 @@ export const CommunityScreen = ({ navigation }) => {
   const [shorts, setShorts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [viewedIds, setViewedIds] = useState(new Set());
   
-  // Loading & Refreshing States
   const [refreshing, setRefreshing] = useState(false);
   const [errorBanner, setErrorBanner] = useState(null);
   
-  // Unified Modal States
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalStep, setModalStep] = useState(1);
   
@@ -126,13 +125,49 @@ export const CommunityScreen = ({ navigation }) => {
   const [newGroupDescription, setNewGroupDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
-  // Search & Discovery State
   const [searchQuery, setSearchQuery] = useState('');
   const [isExploreModalVisible, setIsExploreModalVisible] = useState(false);
 
+  const isMounted = useRef(true);
+
   useEffect(() => {
+    isMounted.current = true;
+    loadViewedStatus();
     fetchAllData();
+    return () => {
+      isMounted.current = false;
+    };
   }, []);
+
+  const loadViewedStatus = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      if (stored && isMounted.current) {
+        setViewedIds(new Set(JSON.parse(stored)));
+      }
+    } catch (err) {
+      console.error('Failed to load viewed statuses:', err);
+    }
+  };
+
+  const markAsViewed = async (postIds) => {
+    let updated = false;
+    const newSet = new Set(viewedIds);
+    postIds.forEach(id => {
+      if (!newSet.has(id)) {
+        newSet.add(id);
+        updated = true;
+      }
+    });
+    if (updated) {
+      setViewedIds(newSet);
+      try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(newSet)));
+      } catch (err) {
+        console.error('Failed to save viewed status:', err);
+      }
+    }
+  };
 
   const fetchAllData = async () => {
     setErrorBanner(null);
@@ -144,13 +179,28 @@ export const CommunityScreen = ({ navigation }) => {
       if (session?.user) {
         const { data: profileData } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
         activeUser = profileData || session.user;
-        setCurrentUser(activeUser);
+        if (isMounted.current) {
+          setCurrentUser(activeUser);
+        }
       }
 
       await supabase.from('statuses').delete().lt('expires_at', now);
 
       const [storyRes, shortRes, groupRes] = await Promise.all([
-        supabase.from('statuses').select('*').gt('expires_at', now),
+        supabase.from('statuses').select(`
+          id,
+          content,
+          created_at,
+          expires_at,
+          user_id,
+          name,
+          viewers,
+          background,
+          profiles:user_id (
+            avatar_url,
+            name
+          )
+        `).gt('expires_at', now),
         supabase.from('shorts').select('*').order('created_at', { ascending: false }).range(0, 4),
         supabase.from('groups').select('*').order('created_at', { ascending: false })
       ]);
@@ -161,71 +211,134 @@ export const CommunityScreen = ({ navigation }) => {
 
       let fetchedGroups = groupRes.data || [];
 
-      // Fetch memberships, member counts, and unread metrics for each group
       if (fetchedGroups.length > 0) {
         const groupIds = fetchedGroups.map(g => g.id);
 
-        const [membershipsRes, countsRes] = await Promise.all([
-          activeUser ? supabase.from('group_members').select('group_id, last_read_at').eq('user_id', activeUser.id).in('group_id', groupIds) : Promise.resolve({ data: [] }),
-          supabase.from('group_members').select('group_id').in('group_id', groupIds)
-        ]);
+        const membershipsRes = activeUser
+          ? await supabase.from('group_members').select('group_id').eq('user_id', activeUser.id).in('group_id', groupIds)
+          : { data: [] };
 
-        const membershipsMap = {};
-        (membershipsRes.data || []).forEach(m => {
-          membershipsMap[m.group_id] = m;
-        });
+        const joinedGroupIds = new Set((membershipsRes.data || []).map(m => m.group_id));
 
-        const joinedGroupIds = new Set(Object.keys(membershipsMap));
-        
-        // Calculate live member counts per group
-        const countMap = {};
-        (countsRes.data || []).forEach(m => {
-          countMap[m.group_id] = (countMap[m.group_id] || 0) + 1;
-        });
-
-        // Optionally fetch unread count metrics if a messages table exists with group_id and created_at
-        // For demonstration, we check for messages newer than last_read_at if tracked
-        const unreadMap = {};
-        if (activeUser && joinedGroupIds.size > 0) {
-          await Promise.all(
-            Array.from(joinedGroupIds).map(async (gid) => {
-              const lastRead = membershipsMap[gid]?.last_read_at;
-              let query = supabase.from('group_messages').select('*', { count: 'exact', head: true }).eq('group_id', gid);
-              if (lastRead) {
-                query = query.gt('created_at', lastRead);
-              }
-              const { count } = await query;
-              if (count && count > 0) {
-                unreadMap[gid] = count;
-              }
-            })
-          ).catch(() => {
-            // Graceful fallback if group_messages table structure differs
-          });
-        }
-
+        let unreadCountMap = {};
         fetchedGroups = fetchedGroups.map(g => ({
           ...g,
           is_member: joinedGroupIds.has(g.id),
-          members_count: countMap[g.id] || 0,
-          unread_count: unreadMap[g.id] || 0
+          members_count: g.members_count || 0,
+          unread_count: unreadCountMap[g.id] || 0
         }));
       }
 
-      setStories(storyRes.data || []);
-      setShorts(shortRes.data || []);
-      setGroups(fetchedGroups);
+      if (isMounted.current) {
+        const formattedStories = (storyRes.data || []).map((item) => ({
+          ...item,
+          avatar_url: item.profiles?.avatar_url || null,
+          user_name: item.profiles?.name || item.name || 'Member',
+        }));
+
+        setStories(formattedStories);
+        setShorts(shortRes.data || []);
+        setGroups(fetchedGroups);
+      }
     } catch (err) {
       console.error('Error fetching community data:', err);
-      setErrorBanner('Could not load community updates. Check your connection.');
+      if (isMounted.current) {
+        setErrorBanner('Could not load community updates. Check your connection.');
+      }
     }
   };
 
   const onRefresh = useCallback(async () => {
+    if (!isMounted.current) return;
     setRefreshing(true);
     await fetchAllData();
-    setRefreshing(false);
+    if (isMounted.current) {
+      setRefreshing(false);
+    }
   }, []);
+
+  const groupedStories = useMemo(() => {
+    const map = {};
+    stories.forEach((item) => {
+      const userId = item.user_id;
+      const rawAvatar = item.avatar_url && item.avatar_url.trim() !== '' ? item.avatar_url : null;
+      const avatarUrl = rawAvatar || (userId === currentUser?.id ? currentUser?.avatar_url : null);
+
+      if (!map[userId]) {
+        map[userId] = {
+          user_id: userId,
+          user_name: item.user_name || item.name || 'Member',
+          user_avatar: avatarUrl,
+          posts: [],
+        };
+      } else if (!map[userId].user_avatar && avatarUrl) {
+        map[userId].user_avatar = avatarUrl;
+      }
+      map[userId].posts.push(item);
+    });
+    return Object.values(map);
+  }, [stories, currentUser]);
+
+  const myUserId = currentUser?.id;
+  const myGroupIndex = groupedStories.findIndex((g) => g.user_id === myUserId);
+  const hasMyStory = myGroupIndex !== -1 && groupedStories[myGroupIndex].posts.length > 0;
+  const myGroup = hasMyStory ? groupedStories[myGroupIndex] : null;
+
+  const sortedOtherStories = useMemo(() => {
+    const others = groupedStories.filter((g) => g.user_id !== myUserId);
+    return others.sort((a, b) => {
+      const aHasUnviewed = a.posts.some((p) => !viewedIds.has(p.id));
+      const bHasUnviewed = b.posts.some((p) => !viewedIds.has(p.id));
+      if (aHasUnviewed === bHasUnviewed) return 0;
+      return aHasUnviewed ? -1 : 1;
+    });
+  }, [groupedStories, myUserId, viewedIds]);
+
+  const displayGroups = useMemo(() => {
+    return myGroup ? [myGroup, ...sortedOtherStories] : sortedOtherStories;
+  }, [myGroup, sortedOtherStories]);
+
+  const handleStoryPress = (group) => {
+    if (group && group.posts) {
+      markAsViewed(group.posts.map(p => p.id));
+    }
+  };
+
+  const handleCreateStory = async (content, backgroundColors) => {
+    if (!currentUser) {
+      Alert.alert('Error', 'You must be logged in to share a story.');
+      return;
+    }
+    const expiresAt = new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString();
+    const authorName = currentUser.name || currentUser.email || 'Member';
+
+    const { error } = await supabase.from('statuses').insert([
+      {  
+        content, 
+        name: authorName,
+        user_id: currentUser.id,
+        expires_at: expiresAt,
+        background: backgroundColors 
+      }
+    ]);
+
+    if (error) {
+      Alert.alert('Error', error.message);
+    } else {
+      fetchAllData();
+    }
+  };
+
+
+
+  const handleDeleteStory = async (storyId) => {
+    const { error } = await supabase.from('statuses').delete().eq('id', storyId);
+    if (error) {
+      Alert.alert('Error', error.message);
+    } else {
+      fetchAllData();
+    }
+  };
 
   const handleJoinGroup = async (groupId) => {
     if (!currentUser) {
@@ -233,23 +346,26 @@ export const CommunityScreen = ({ navigation }) => {
       return false;
     }
 
-    const { error } = await supabase.from('group_members').insert([{ group_id: groupId, user_id: currentUser.id, last_read_at: new Date().toISOString() }]);
+    const { error } = await supabase.from('group_members').insert([{ group_id: groupId, user_id: currentUser.id }]);
     
     if (error) {
       if (error.code === '23505') {
-        Alert.alert('Notice', 'You are already a member of this fellowship.');
+        Alert.alert('Notice', 'You are already a member of this page.');
         return true;
       }
       Alert.alert('Error', 'Could not join group. Please try again.');
       return false;
     } else {
-      Alert.alert('Success', 'You have successfully joined the group fellowship.');
+      Alert.alert('Success', 'You have successfully joined the group.');
       return true;
     }
   };
 
   const handlePressGroup = (group) => {
-    navigation.navigate('GroupDetailScreen', { group, currentUser });
+    navigation.navigate('GroupDetailScreen', { 
+      group, 
+      currentUser
+    });
   };
 
   const handleCreateGroup = async () => {
@@ -290,16 +406,20 @@ export const CommunityScreen = ({ navigation }) => {
       if (error) throw error;
 
       if (newGroup) {
-        await supabase.from('group_members').insert([{ group_id: newGroup.id, user_id: currentUser.id, last_read_at: new Date().toISOString() }]);
+        await supabase.from('group_members').insert([{ group_id: newGroup.id, user_id: currentUser.id }]);
       }
 
-      setModalStep(3);
+      if (isMounted.current) {
+        setModalStep(3);
+      }
       fetchAllData();
     } catch (err) {
       console.error('Error creating group:', err);
       Alert.alert('Error', 'Could not create the group. Please check your database policies.');
     } finally {
-      setIsCreating(false);
+      if (isMounted.current) {
+        setIsCreating(false);
+      }
     }
   };
 
@@ -316,7 +436,7 @@ export const CommunityScreen = ({ navigation }) => {
   };
 
   const filteredGroups = groups.filter((group) => 
-    group.name.toLowerCase().includes(searchQuery.toLowerCase())
+    group.name && group.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const displayedGroups = groups.slice(0, 4);
@@ -339,7 +459,6 @@ export const CommunityScreen = ({ navigation }) => {
           contentContainerStyle={styles.scrollContent}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={RED} />}
         >        
-          
           {errorBanner && (
             <View style={styles.errorBanner}>
               <AppText style={styles.errorText}>{errorBanner}</AppText>
@@ -350,9 +469,74 @@ export const CommunityScreen = ({ navigation }) => {
             </View>
           )}
 
-          <StorySection stories={stories} currentUser={currentUser} onRefresh={fetchAllData} />
+          <StorySection 
+            displayGroups={displayGroups}
+            myGroup={myGroup}
+            hasMyStory={hasMyStory}
+            viewedIds={viewedIds}
+            currentUser={currentUser}
+            onCreateStoryPress={handleCreateStory}
+            onStoryPress={handleStoryPress}
+            onDeleteStory={handleDeleteStory}
+            onRecordView={async (payload) => {
+            try {
+              const targetStatusId = payload?.p_status_id || payload?.statusId || payload?.id;
+              const targetUserId = payload?.p_user_id || payload?.userId || currentUser?.id;
+              
+              if (!targetStatusId) {
+                console.warn('Missing status ID in payload:', payload);
+                return;
+              }
 
-          {/* Apostolic Shorts Section */}
+              // 1. Fetch current viewers
+              const { data: postData, error: fetchError } = await supabase
+                .from('statuses')
+                .select('viewers')
+                .eq('id', targetStatusId)
+                .single();
+
+              if (fetchError) {
+                console.error('Supabase Fetch Error:', fetchError);
+                return;
+              }
+
+              const currentViewers = Array.isArray(postData?.viewers) ? postData.viewers : [];
+              const alreadyViewed = currentViewers.some(v => v.id === targetUserId);
+
+              if (!alreadyViewed) {
+                const updatedViewers = [
+                  ...currentViewers,
+                  {
+                    id: targetUserId,
+                    name: payload?.p_name || payload?.name || currentUser?.name || 'Member',
+                    avatar: payload?.p_avatar || payload?.avatar || currentUser?.avatar_url || null,
+                    viewed_at: new Date().toISOString()
+                  }
+                ];
+
+                const { data: updateData, error: updateError } = await supabase
+                  .from('statuses')
+                  .update({ viewers: updatedViewers })
+                  .eq('id', targetStatusId)
+                  .select(); 
+
+                if (updateError) {
+                  console.error('Supabase Update Error:', updateError);
+                  return;
+                }
+
+                console.log('Successfully recorded view in Supabase:', updateData);
+              }
+              
+              if (typeof fetchAllData === 'function') {
+                fetchAllData();
+              }
+            } catch (err) {
+              console.error('Unexpected error in onRecordView:', err);
+            }
+          }}
+                    />
+
           <View style={styles.section}>
             <AppText type="bold" style={[styles.sectionTitle, {paddingHorizontal: 30}]}>Apostolic Shorts</AppText>
             <FlatList 
@@ -379,7 +563,6 @@ export const CommunityScreen = ({ navigation }) => {
             />
           </View>
 
-          {/* Faith Discussions Section */}
           <View style={styles.groupSection}>
             <View style={[styles.row, {paddingHorizontal: 30}]}>
               <AppText type="bold" style={styles.sectionTitle}>Faith Forums</AppText>
@@ -398,8 +581,8 @@ export const CommunityScreen = ({ navigation }) => {
                     <PlusCircle color={RED} size={24} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 14 }}>
-                    <AppText type="bold" style={styles.createBannerTitle}>Start a New Fellowship</AppText>
-                    <AppText style={styles.createBannerSubtitle}>Create a sacred space for collective growth & prayer</AppText>
+                    <AppText type="bold" style={styles.createBannerTitle}>Start a New Page</AppText>
+                    <AppText style={styles.createBannerSubtitle}>Create a space for collective growth</AppText>
                   </View>
                 </View>
               </AnimatedPressable>
@@ -422,7 +605,6 @@ export const CommunityScreen = ({ navigation }) => {
         </ScrollView>
       </View>
 
-      {/* Explore All Groups Full Modal with Integrated Search */}
       <Modal visible={isExploreModalVisible} animationType="slide" transparent={true} onRequestClose={() => setIsExploreModalVisible(false)}>
         <View style={styles.exploreOverlay}>
           <View style={styles.exploreContainer}>
@@ -466,7 +648,6 @@ export const CommunityScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Creation Wizard Modal */}
       <Modal visible={isModalVisible} animationType="fade" transparent={true} onRequestClose={() => setIsModalVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>

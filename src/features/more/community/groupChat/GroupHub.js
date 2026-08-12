@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
-import { AppText } from '../../components/AppText';
+import { AppText } from '../../../../components/AppText';
 
 export const GroupHub = ({ groups }) => (
   <View style={styles.grid}>

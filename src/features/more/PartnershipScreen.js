@@ -6,6 +6,7 @@ import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { AppText } from '../../components/AppText'; 
 import { supabase } from "../../config/supabaseClient";
+import { useTheme } from '../../context/ThemeContext';
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -14,11 +15,9 @@ if (Platform.OS === 'android') {
 const PRIMARY_RED = '#B91C1C';
 const LIGHT_RED = '#fef2f2';
 const BORDER_RED = '#f87171';
-const DARK_SLATE = '#1f2937';
-const NEUTRAL = '#6b7280';
-const WHITE = '#FFFFFF';
 
 export const PartnershipScreen = ({ navigation }) => {
+  const { colors, isDark: isDarkMode } = useTheme();
   const [selectedPlan, setSelectedPlan] = useState('MONTHLY');
   const [quantity, setQuantity] = useState(1);
   const [existingSubscription, setExistingSubscription] = useState(null);
@@ -106,43 +105,59 @@ export const PartnershipScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header} pointerEvents="box-none">
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <ChevronLeft color={PRIMARY_RED} size={32} />
+        <TouchableOpacity 
+          style={[styles.backButton, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)' }]} 
+          onPress={() => navigation.goBack()}
+        >
+          <ChevronLeft color={isDarkMode ? '#ffffff' : PRIMARY_RED} size={32} />
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.heroSection}>
-          <AppText type="bold" style={styles.title}>Pledge Form</AppText>
-          <AppText style={styles.subtitle}>Dearest Esteemed Partner, what partnership type are you opting for?</AppText>
+          <AppText type="bold" style={[styles.title, { color: isDarkMode ? '#ffffff' : PRIMARY_RED }]}>Pledge Form</AppText>
+          
+          <View style={[styles.purposeCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : LIGHT_RED, borderColor: isDarkMode ? '#334155' : BORDER_RED }]}>
+            <AppText style={[styles.purposeText, { color: colors.textSecondary }]}>
+              Your partnership fuels the distribution of <AppText type="bold" style={{ color: isDarkMode ? '#ffffff' : PRIMARY_RED }}>Machaira hard copies</AppText> for vital missions work across the nations.
+            </AppText>
+          </View>
         </View>
 
         <View style={styles.section}>
-          <AppText style={styles.label}>Basis</AppText>
+          <AppText style={[styles.label, { color: colors.textSecondary }]}>PARTNERSHIP TYPE</AppText>
           <View style={styles.toggleRow}>
             {['WEEKLY', 'MONTHLY'].map((p) => (
               <Pressable key={p} onPress={() => handleUpdate('plan', p)} 
-                style={[styles.toggleBtn, selectedPlan === p && styles.toggleActive]}>
-                <AppText type="bold" style={selectedPlan === p ? styles.textActive : styles.textInactive}>{p}</AppText>
+                style={[
+                  styles.toggleBtn, 
+                  { borderColor: isDarkMode ? '#475569' : BORDER_RED },
+                  selectedPlan === p && styles.toggleActive
+                ]}>
+                <AppText type="bold" style={selectedPlan === p ? styles.textActive : [styles.textInactive, { color: isDarkMode ? '#f87171' : PRIMARY_RED }]}>{p}</AppText>
               </Pressable>
             ))}
           </View>
         </View>
 
         <View style={styles.section}>
-          <AppText style={styles.label}>Number of copies</AppText>
-          <View style={styles.stepper}>
-            <Pressable onPress={() => handleUpdate('qty', -1)} style={styles.stepBtn}><AppText style={styles.stepIcon}>-</AppText></Pressable>
-            <AppText type="bold" style={styles.qty}>{quantity}</AppText>
-            <Pressable onPress={() => handleUpdate('qty', 1)} style={styles.stepBtn}><AppText style={styles.stepIcon}>+</AppText></Pressable>
+          <AppText style={[styles.label, { color: colors.textSecondary }]}>Number of copies</AppText>
+          <View style={[styles.stepper, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : LIGHT_RED }]}>
+            <Pressable onPress={() => handleUpdate('qty', -1)} style={styles.stepBtn}>
+              <AppText style={[styles.stepIcon, { color: isDarkMode ? '#f87171' : PRIMARY_RED }]}>-</AppText>
+            </Pressable>
+            <AppText type="bold" style={[styles.qty, { color: colors.text }]}>{quantity}</AppText>
+            <Pressable onPress={() => handleUpdate('qty', 1)} style={styles.stepBtn}>
+              <AppText style={[styles.stepIcon, { color: isDarkMode ? '#f87171' : PRIMARY_RED }]}>+</AppText>
+            </Pressable>
           </View>
         </View>
 
-        <View style={styles.footer}>
-          <AppText style={styles.totalLabel}>Total Due</AppText>
-          <AppText type="bold" style={styles.totalPrice}>GH₵ {total.toLocaleString()}</AppText>
+        <View style={[styles.footer, { borderTopColor: isDarkMode ? '#334155' : '#f3f4f6' }]}>
+          <AppText style={[styles.totalLabel, { color: colors.textSecondary }]}>Total Due</AppText>
+          <AppText type="bold" style={[styles.totalPrice, { color: colors.text }]}>GH₵ {total.toLocaleString()}</AppText>
           
           <Pressable style={styles.cta} onPress={handleCtaPress}>
             <AppText type="bold" style={styles.ctaText}>
@@ -151,7 +166,7 @@ export const PartnershipScreen = ({ navigation }) => {
           </Pressable>
 
           {existingSubscription && (
-            <Pressable style={[styles.cta, { marginTop: 15, backgroundColor: DARK_SLATE }]} onPress={handleRedeem}>
+            <Pressable style={[styles.cta, { marginTop: 15, backgroundColor: isDarkMode ? '#334155' : '#1f2937' }]} onPress={handleRedeem}>
               <AppText type="bold" style={styles.ctaText}>Redeem Pledge</AppText>
             </Pressable>
           )}
@@ -162,27 +177,29 @@ export const PartnershipScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: WHITE },
+  container: { flex: 1 },
   header: { position: 'absolute', top: 60, left: 11, zIndex: 10, padding: 5 },
-  backButton: { backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: 20, padding: 5 },
+  backButton: { borderRadius: 20, padding: 5 },
   content: { padding: 30 },
   heroSection: { marginBottom: 40, marginTop: 60 },
-  title: { fontSize: 32, color: PRIMARY_RED },
-  subtitle: { fontSize: 16, color: DARK_SLATE, marginTop: 23 },
+  title: { fontSize: 32 },
+  subtitle: { fontSize: 16, marginTop: 23 },
+  purposeCard: { marginTop: 16, padding: 16, borderRadius: 8, borderWidth: 1 },
+  purposeText: { fontSize: 13, lineHeight: 20 },
   section: { marginBottom: 30 },
-  label: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, color: NEUTRAL, marginBottom: 12 },
+  label: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 12 },
   toggleRow: { flexDirection: 'row', gap: 10 },
-  toggleBtn: { flex: 1, padding: 16, borderRadius: 8, borderWidth: 1.5, borderColor: BORDER_RED, alignItems: 'center' },
+  toggleBtn: { flex: 1, padding: 16, borderRadius: 8, borderWidth: 1.5, alignItems: 'center' },
   toggleActive: { backgroundColor: PRIMARY_RED, borderColor: PRIMARY_RED },
-  textActive: { color: WHITE },
-  textInactive: { color: PRIMARY_RED },
-  stepper: { flexDirection: 'row', alignItems: 'center', backgroundColor: LIGHT_RED, borderRadius: 8, padding: 4 },
+  textActive: { color: '#FFFFFF' },
+  textInactive: {},
+  stepper: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, padding: 4 },
   stepBtn: { padding: 20 },
-  stepIcon: { fontSize: 20, color: PRIMARY_RED },
-  qty: { flex: 1, textAlign: 'center', fontSize: 24, color: DARK_SLATE },
-  footer: { marginTop: 20, paddingTop: 30, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
-  totalLabel: { fontSize: 14, color: NEUTRAL },
-  totalPrice: { fontSize: 40, color: DARK_SLATE, marginVertical: 10, marginBottom: 40 },
+  stepIcon: { fontSize: 20 },
+  qty: { flex: 1, textAlign: 'center', fontSize: 24 },
+  footer: { marginTop: 20, paddingTop: 30, borderTopWidth: 1 },
+  totalLabel: { fontSize: 14 },
+  totalPrice: { fontSize: 40, marginVertical: 10, marginBottom: 40 },
   cta: { backgroundColor: PRIMARY_RED, padding: 20, borderRadius: 8, alignItems: 'center' },
-  ctaText: { color: WHITE, fontSize: 16 }
+  ctaText: { color: '#FFFFFF', fontSize: 16 }
 });

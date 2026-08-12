@@ -51,6 +51,12 @@ export default function DevotionalViewer({
         borderRadius: 6,
         fontStyle: 'italic',
       },
+      p: {
+        marginBottom: 16,
+      },
+      strong: {
+        fontFamily: 'Montserrat-Bold',
+      },
       ul: {
         marginTop: 4,
         marginBottom: 4,
@@ -70,15 +76,16 @@ export default function DevotionalViewer({
         paddingVertical: 18,
         paddingHorizontal: 16,
         marginBottom: 26,
-        fontStyle: 'normal',
         alignItems: 'center',
         borderBottomWidth: 2,
+        color: DEVOTIONAL_RED,
       },
       'keyverse-text': {
         fontFamily: 'Montserrat-SemiBold',
         fontSize: baseFontSize * 1,
         lineHeight: baseFontSize * 1.6,
         textAlign: 'center',
+        color: DEVOTIONAL_RED,
       },
       'keyverse-ref': {
         fontFamily: 'Montserrat-Bold',

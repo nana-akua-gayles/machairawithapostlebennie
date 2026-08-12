@@ -280,6 +280,20 @@ function finalizeFlatResult(content, title, droppedHead) {
   return { content: content.trim(), titleConfidence, droppedHead: collapseWhitespace(droppedHead) };
 }
 
+function fixMissingSentenceSpaces(str) {
+  return (str || '').replace(
+    /([.!?])(["'\u201d\u2019]?)(?=[A-Z\u201c])/g,
+    (m, punct, quote) => `${punct}${quote} `
+  );
+}
+
+function fixGluedWords(str) {
+  return (str || '').replace(
+    /(?<![A-Z])\b([a-z]{2,})([A-Z][a-z]+)/g,
+    (m, before, after) => `${before} ${after}`
+  );
+}
+
 function stripEpisodePrefix(title) {
   if (!title) return title;
   return title.replace(/^\s*episode\s*\d+\s*[-:\u2013\u2014]\s*/i, '').trim();
@@ -416,6 +430,24 @@ function splitFooter(content) {
   const body = content.slice(0, cutPoint).trim();
   const footerRaw = content.slice(idx);
   return { body, footerHtml: buildFooterHtml(footerRaw) };
+}
+
+function splitFooter(content) {
+  const idx = content.search(/DIG DEEPER/i);
+  if (idx === -1) return { body: content, footerHtml: null };
+
+ 
+  const tagOpenBefore = content.lastIndexOf('<p', idx);
+  const cutPoint = tagOpenBefore !== -1 && idx - tagOpenBefore < 50 ? tagOpenBefore : idx;
+
+  const body = content.slice(0, cutPoint).trim();
+  const footerRaw = content.slice(idx);
+  return { body, footerHtml: buildFooterHtml(footerRaw) };
+}
+
+function boldScriptureRefs(text) {
+  const refRe = new RegExp(SCRIPTURE_REF.source, 'gi');
+  return text.replace(refRe, (match) => `<strong>${match}</strong>`);
 }
 
 function buildFooterHtml(footerRaw) {
@@ -577,8 +609,6 @@ function convertMarkerRun(text, markerRe, matchOffset, stripMarker, tag) {
 }
 
 
-const PARAGRAPH_TARGET_LENGTH = 260;
-
 function splitBlocks(html) {
   return html
     .split(
@@ -587,31 +617,121 @@ function splitBlocks(html) {
     .filter(part => part.trim().length);
 }
 
+const CLOSING_WORDS_RE = /^(Shalom|Hallelujah|Selah|Glory to God|Oh Hallelujah)[.!?\s]*$/i;
+
+function isAllCapsSentence(text) {
+  const stripped = text.replace(/<[^>]+>/g, '');
+  const core = stripped.replace(/[^A-Za-z]/g, '');
+  return core.length >= 3 && core === core.toUpperCase();
+}
+
+function isLinkSentence(text) {
+  return /<a[\s>]/i.test(text);
+}
+
+function isClosingWordSentence(text) {
+  const stripped = text.replace(/<[^>]+>/g, '').trim();
+  return CLOSING_WORDS_RE.test(stripped);
+}
+
+
+function findScriptureQuoteSpans(text) {
+  const spans = [];
+  const openRe = /["'\u2018\u201c\u201d]/g;
+  let m;
+  let searchFrom = 0;
+
+  while ((m = openRe.exec(text))) {
+    if (m.index < searchFrom) continue;
+    const openIdx = m.index;
+    const closeRe = /["'\u2018\u201c\u201d]/g;
+    closeRe.lastIndex = openIdx + 1;
+    let closeMatch;
+    let found = null;
+    let usedCloseIdx = -1;
+    while ((closeMatch = closeRe.exec(text))) {
+      if (closeMatch.index - openIdx > 1500) break;
+      const candidate = text
+        .slice(closeMatch.index + 1, closeMatch.index + 1 + 60)
+        .match(new RegExp(SCRIPTURE_REF.source, 'i'));
+      if (candidate && candidate.index <= 40) {
+        found = candidate;
+        usedCloseIdx = closeMatch.index;
+        break;
+      }
+    }
+    if (found) {
+      const refStart = usedCloseIdx + 1 + found.index;
+      const refEnd = refStart + found[0].length;
+      spans.push({ start: openIdx, end: refEnd });
+      searchFrom = refEnd;
+      openRe.lastIndex = refEnd;
+    }
+  }
+  return spans;
+}
 
 function paragraphizeText(text) {
-  const sentences = text
-  .split(/(?<=[.!?])\s+(?=[A-Z"\u201c(<])/)
-  .map(s => s.trim())
-  .filter(Boolean);
-
-  const paragraphs = [];
-  let current = '';
-
-  sentences.forEach(sentence => {
-    current = current
-      ? `${current} ${sentence}`
-      : sentence;
-
-    if (current.length >= PARAGRAPH_TARGET_LENGTH) {
-      paragraphs.push(`<p>${current}</p>`);
-      current = '';
-    }
+  const spans = findScriptureQuoteSpans(text);
+  const protectedUnits = [];
+  let working = text;
+  let offset = 0;
+  spans.forEach((span, i) => {
+    const adjStart = span.start - offset;
+    const adjEnd = span.end - offset;
+    const unit = working.slice(adjStart, adjEnd);
+    protectedUnits.push(unit);
+    const token = `@@SCRIPT${i}@@`;
+    working = working.slice(0, adjStart) + token + working.slice(adjEnd);
+    offset += (adjEnd - adjStart) - token.length;
   });
 
-  if (current) {
-    paragraphs.push(`<p>${current}</p>`);
-  }
+  const sentences = working
+    .split(/(?<=[.!?])\s+(?=[A-Z"\u201c(<])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
+  const paragraphs = [];
+  let current = [];
+  let fullstopCount = 0;
+
+  const flush = () => {
+    if (current.length) {
+      paragraphs.push(`<p>${current.join(' ')}</p>`);
+      current = [];
+      fullstopCount = 0;
+    }
+  };
+
+  const restoreTokens = (s) => s.replace(/@@SCRIPT(\d+)@@/g, (_, i) => protectedUnits[Number(i)]);
+
+  sentences.forEach((rawSentence) => {
+    if (!rawSentence) return;
+    const sentence = restoreTokens(rawSentence);
+    const isProtectedUnit = /@@SCRIPT\d+@@/.test(rawSentence);
+
+    if (isLinkSentence(sentence) || isAllCapsSentence(sentence) || isClosingWordSentence(sentence)) {
+      flush();
+      paragraphs.push(`<p>${sentence}</p>`);
+      return;
+    }
+
+    const endsInQuestion = /\?\s*$/.test(sentence);
+    if (endsInQuestion && !isProtectedUnit) {
+      current.push(sentence);
+      flush();
+      return;
+    }
+
+    const periodsHere = (sentence.match(/\./g) || []).length;
+    if (current.length > 0 && fullstopCount + periodsHere > 3) {
+      flush();
+    }
+    current.push(sentence);
+    fullstopCount += periodsHere;
+  });
+
+  flush();
   return paragraphs;
 }
 
@@ -644,10 +764,6 @@ function paragraphize(bodyHtml) {
   return htmlParts.join("");
 }
 
-function boldScriptureRefs(text) {
-  const refRe = new RegExp(SCRIPTURE_REF.source, 'gi');
-  return text.replace(refRe, (match) => `<strong>${match}</strong>`);
-}
 
 function renderKeyVerseHtml(keyVerseText, keyVerseRef) {
   if (!keyVerseText) return null;
@@ -663,6 +779,8 @@ function processDevotionalHtml(rawHtml, { title, includeFooter = true } = {}) {
   if (!rawHtml) return '<p>No content available.</p>';
 
   let content = decodeEntities(rawHtml.trim());
+  content = fixMissingSentenceSpaces(content);
+  content = fixGluedWords(content);
 
   const stripped = stripPreamble(content, { title });
   content = stripEmptyTags(stripped.content);
@@ -680,53 +798,36 @@ function processDevotionalHtml(rawHtml, { title, includeFooter = true } = {}) {
   const verse = extractOpeningScripture(content);
   const keyVerseHtml = renderKeyVerseHtml(verse.keyVerseText, verse.keyVerseRef);
 
-const bodySource =
-    verse.status === 'found' || verse.status === 'found-unquoted'
-        ? verse.rest
-        : content;
+  const hasKeyVerse = verse.status === 'found' || verse.status === 'found-unquoted';
+
+  const leadingHtml = hasKeyVerse && verse.leading
+    ? paragraphize(
+        boldScriptureRefs(
+            convertDashLists(
+              stripEmptyTags(verse.leading)
+            )
+          )
+      )
+    : null;
+
+const bodySource = hasKeyVerse ? verse.rest : content;
 
 const { body, footerHtml } = splitFooter(bodySource);
 
-const cleanedBody = convertDashLists(
-    stripEmptyTags(body)
+const cleanedBody = boldScriptureRefs(
+    convertDashLists(
+      stripEmptyTags(body)
+    )
 );
 
 const paragraphedBody = paragraphize(cleanedBody);
 
-  return [keyVerseHtml, paragraphedBody, includeFooter ? footerHtml : null].filter(Boolean).join('');
+  return [leadingHtml, keyVerseHtml, paragraphedBody, includeFooter ? footerHtml : null].filter(Boolean).join('');
 }
 
 module.exports = {
-  // utilities
-  decodeEntities,
-  escapeRegExp,
-  collapseWhitespace,
-  stripTags,
-  fuzzyFind,
-  // format
-  isStructured,
-  // scripture
-  BOOKS,
-  SCRIPTURE_REF,
-  findScriptureReference,
-  // preamble
-  stripPreamble,
-  stripEmptyTags,
-  matchCapsTitleRun,
-  stripEpisodePrefix,
-  // lists
-  convertDashLists,
-  // scripture emphasis
-  boldScriptureRefs,
-  // opening scripture
-  extractOpeningScripture,
-  // footer
-  FOOTER_LABELS,
-  splitFooter,
-  // paragraphs
-  paragraphize,
-  // render
-  renderKeyVerseHtml,
-  // top-level
-  processDevotionalHtml,
+  decodeEntities, escapeRegExp, collapseWhitespace, stripTags, fuzzyFind, isStructured, BOOKS, SCRIPTURE_REF,
+  findScriptureReference, fixMissingSentenceSpaces, fixGluedWords, stripPreamble, stripEmptyTags, matchCapsTitleRun, stripEpisodePrefix, convertDashLists,
+  boldScriptureRefs, extractOpeningScripture, FOOTER_LABELS, splitFooter, paragraphize,
+  renderKeyVerseHtml, processDevotionalHtml,
 };

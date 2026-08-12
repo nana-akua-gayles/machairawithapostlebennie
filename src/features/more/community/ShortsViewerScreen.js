@@ -3,8 +3,8 @@ import { View, StyleSheet, FlatList, Dimensions, TouchableOpacity, StatusBar, Sh
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { ChevronLeft, Heart, MessageCircle, Share2, Volume2, VolumeX, Play, X, Send } from 'lucide-react-native';
 import * as Linking from 'expo-linking';
-import { AppText } from '../../components/AppText';
-import { supabase } from '../../config/supabaseClient';
+import { AppText } from '../../../components/AppText';
+import { supabase } from '../../../config/supabaseClient';
 
 const { width, height } = Dimensions.get('window');
 const RED = '#E11D48';

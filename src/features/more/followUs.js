@@ -6,6 +6,7 @@ import { ChevronLeft } from 'lucide-react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppText } from '../../components/AppText';
+import { useTheme } from '../../context/ThemeContext'; // Assuming this path
 
 const DATA = [
   { 
@@ -35,40 +36,48 @@ const DATA = [
 
 const FollowUsScreen = () => {
   const navigation = useNavigation();
+  const { colors, isDark } = useTheme();
 
   return (
-    <LinearGradient colors={['#f8fafc', '#e2e8f0']} style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+    <LinearGradient 
+      colors={isDark ? ['#09090b', '#18181b'] : ['#f8fafc', '#e2e8f0']} 
+      style={styles.container}
+    >
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
           <Pressable 
             onPress={() => navigation.goBack()} 
-            style={styles.backButtonContainer}
-            android_ripple={{ color: '#00000010', borderless: true }}
+            style={[styles.backButtonContainer, { backgroundColor: isDark ? '#27272a' : '#f1f5f9' }]} 
+            android_ripple={{ color: isDark ? '#ffffff20' : '#00000010', borderless: true }}
           >
-            <ChevronLeft size={24} color="#1e293b" />
+            <ChevronLeft size={24} color={isDark ? '#ffffff' : '#1e293b'} />
           </Pressable>
-          <AppText type="bold" style={styles.title}>Connect with Us</AppText>
+          <AppText type="bold" style={[styles.title, { color: isDark ? '#ffffff' : '#0f172a' }]}>Connect with Us</AppText>
         </View>
 
         <View style={styles.scriptureContainer}>
-          <AppText style={styles.scriptureRef}>1 Corinthians 11:1</AppText>
-          <AppText style={styles.scriptureText}>"Be ye followers of me, even as I also am of Christ"</AppText>
+          <AppText style={[styles.scriptureRef, { color: isDark ? '#a1a1aa' : '#64748b' }]}>1 Corinthians 11:1</AppText>
+          <AppText style={[styles.scriptureText, { color: isDark ? '#d4d4d8' : '#475569' }]}>"Be ye followers of me, even as I also am of Christ"</AppText>
         </View>
 
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {DATA.map((cat) => (
-            <View key={cat.id} style={styles.card}>
+            <View key={cat.id} style={[styles.card, { backgroundColor: isDark ? '#18181b' : '#ffffff', borderColor: isDark ? '#27272a' : '#f1f5f9' }]}>
               <View style={styles.cardTop}>
-                <AppText type="bold" style={styles.catTitle}>{cat.title}</AppText>
-                <AppText style={styles.description}>{cat.description}</AppText>
+                <AppText type="bold" style={[styles.catTitle, { color: isDark ? '#ffffff' : '#1e293b' }]}>{cat.title}</AppText>
+                <AppText style={[styles.description, { color: isDark ? '#a1a1aa' : '#64748b' }]}>{cat.description}</AppText>
               </View>
 
               <View style={styles.linkGrid}>
                 {cat.links.map((link, i) => (
-                  <Pressable key={i} style={styles.linkItem} onPress={() => Linking.openURL(link.url)}>
+                  <Pressable 
+                    key={i} 
+                    style={[styles.linkItem, { backgroundColor: isDark ? '#27272a' : '#f8fafc', borderColor: isDark ? '#3f3f46' : '#f1f5f9' }]} 
+                    onPress={() => Linking.openURL(link.url)}
+                  >
                     <FontAwesome name={link.icon} size={20} color={cat.color} />
-                    <AppText style={styles.linkText}>{link.name}</AppText>
+                    <AppText style={[styles.linkText, { color: isDark ? '#e4e4e7' : '#334155' }]}>{link.name}</AppText>
                   </Pressable>
                 ))}
               </View>
@@ -84,25 +93,19 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', padding: 20 },
-  backButtonContainer: { width: 44, height: 44, borderRadius: 22,  backgroundColor: '#f1f5f9',  alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-  title: { fontSize: 22, color: '#0f172a' },
+  backButtonContainer: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
+  title: { fontSize: 22 },
   scriptureContainer: { paddingHorizontal: 20, paddingBottom: 20, alignItems: 'center' },
-  scriptureRef: { fontSize: 14, color: '#64748b', marginBottom: 6, letterSpacing: 1 },
-  scriptureText: { fontSize: 15, color: '#475569', fontStyle: 'italic', textAlign: 'center', lineHeight: 22 },
+  scriptureRef: { fontSize: 14, marginBottom: 6, letterSpacing: 1 },
+  scriptureText: { fontSize: 15, fontStyle: 'italic', textAlign: 'center', lineHeight: 22 },
   scroll: { paddingHorizontal: 20, paddingBottom: 40 },
-  card: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 20,borderWidth: 1, borderColor: '#f1f5f9',
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8 },
-      android: { elevation: 3 }
-    })
-  },
+  card: { borderRadius: 20, padding: 20, marginBottom: 20, borderWidth: 1 },
   cardTop: { marginBottom: 16 },
-  catTitle: { fontSize: 18, color: '#1e293b' },
-  description: { fontSize: 13, color: '#64748b', marginTop: 4, lineHeight: 18 },
+  catTitle: { fontSize: 18 },
+  description: { fontSize: 13, marginTop: 4, lineHeight: 18 },
   linkGrid: { gap: 12 },
-  linkItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: '#f8fafc',
-    borderWidth: 1, borderColor: '#f1f5f9'},
-  linkText: { fontSize: 13, color: '#334155', marginLeft: 12, flex: 1, fontWeight: '500' }
+  linkItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1 },
+  linkText: { fontSize: 13, marginLeft: 12, flex: 1, fontWeight: '500' }
 });
 
 export default FollowUsScreen;

@@ -9,6 +9,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../config/supabaseClient';
 import { decodeEntities, processDevotionalHtml} from './formatDevotionalHtml';
 import DevotionalViewer from './DevotionalViewer';
+import ForumSection from './ForumSection';
 
 const DEVOTIONAL_RED = '#DC2626';
 
@@ -692,140 +693,17 @@ setRawHtmlContent(formattedHtml);
               </View>
             )}
 
-            <View style={styles.commentsSection}>
-              {/* Header with pill count badge */}
-              <View style={styles.commentHeaderRow}>
-                <View style={styles.headerTitleGroup}>
-                  <View style={styles.iconCircle}>
-                    <MessageSquare color={DEVOTIONAL_RED} size={18} />
-                  </View>
-                  <AppText type="bold" style={[styles.commentSectionTitle, { color: colors.text }]}>
-                    Discussion
-                  </AppText>
-                </View>
-                <View style={[styles.badgePill, { backgroundColor: DEVOTIONAL_RED + '15' }]}>
-                  <AppText type="bold" style={{ color: DEVOTIONAL_RED, fontSize: 12 }}>
-                    {comments.length}
-                  </AppText>
-                </View>
-              </View>
-
-              <View style={[styles.inputWrapper, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <TextInput
-                  style={[styles.commentInput, { color: colors.text }]}
-                  placeholder="Share your insights..."
-                  placeholderTextColor={colors.textSecondary + '80'}
-                  value={newComment}
-                  onChangeText={setNewComment}
-                  multiline
-                />
-                <Pressable
-                  onPress={handleAddComment}
-                  disabled={submittingComment || !newComment.trim()}
-                  style={({ pressed }) => [
-                    styles.sendButton,
-                    { 
-                      backgroundColor: newComment.trim() ? DEVOTIONAL_RED : colors.border,
-                      transform: [{ scale: pressed ? 0.92 : 1 }] 
-                    }
-                  ]}
-                >
-                  {submittingComment ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Send color="#fff" size={15} style={{ marginLeft: -2 }} />
-                  )}
-                </Pressable>
-              </View>
-
-              {/* Comments Feed */}
-              {loadingComments ? (
-                <View style={styles.loaderBox}>
-                  <ActivityIndicator size="small" color={DEVOTIONAL_RED} />
-                </View>
-              ) : comments.length === 0 ? (
-                <View style={[styles.emptyComments, { backgroundColor: colors.card + '50', borderColor: colors.border }]}>
-                  <View style={styles.emptyIconCircle}>
-                    <MessageSquare color={colors.textSecondary} size={22} />
-                  </View>
-                  <AppText type="semibold" style={{ color: colors.text, fontSize: 15, marginTop: 8 }}>
-                    No responses yet
-                  </AppText>
-                  <AppText style={{ color: colors.textSecondary, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
-                    Be the first to share how this devotional spoke to you today.
-                  </AppText>
-                </View>
-              ) : (
-                <View style={styles.commentsList}>
-                  {comments.map((comment) => {
-                    const authorName = comment.profiles?.name || 'Member';
-                    const avatarUrl = comment.profiles?.avatar_url;
-                    const isOwner = currentUser?.id === comment.user_id;
-                    const formattedTime = comment.created_at
-                      ? new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                      : '';
-
-                    return (
-                      <View 
-                        key={comment.id} 
-                        style={[
-                          styles.commentCard, 
-                          { 
-                            backgroundColor: colors.card, 
-                            borderColor: isOwner ? DEVOTIONAL_RED + '40' : colors.border,
-                            borderLeftWidth: isOwner ? 3 : 1,
-                            borderLeftColor: isOwner ? DEVOTIONAL_RED : colors.border,
-                          }
-                        ]}
-                      >
-                        <View style={styles.commentTopRow}>
-                          <View style={styles.userInfo}>
-                            {avatarUrl ? (
-                              <Image source={{ uri: avatarUrl }} style={styles.userAvatar} />
-                            ) : (
-                              <View style={[styles.userAvatarPlaceholder, { backgroundColor: DEVOTIONAL_RED + '15' }]}>
-                                <AppText type="bold" style={{ color: DEVOTIONAL_RED, fontSize: 13 }}>
-                                  {authorName.charAt(0).toUpperCase()}
-                                </AppText>
-                              </View>
-                            )}
-                            <View style={{ marginLeft: 10 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <AppText type="bold" style={{ color: colors.text, fontSize: 14 }}>
-                                  {authorName}
-                                </AppText>
-                                {isOwner && (
-                                  <View style={styles.youTag}>
-                                    <AppText type="bold" style={{ color: DEVOTIONAL_RED, fontSize: 9 }}>YOU</AppText>
-                                  </View>
-                                )}
-                              </View>
-                              <AppText style={{ color: colors.textSecondary, fontSize: 11, marginTop: 1 }}>
-                                {formattedTime}
-                              </AppText>
-                            </View>
-                          </View>
-
-                          {isOwner && (
-                            <Pressable
-                              onPress={() => handleDeleteComment(comment.id)}
-                              hitSlop={12}
-                              style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.5 }]}
-                            >
-                              <Trash2 size={15} color={colors.textSecondary} />
-                            </Pressable>
-                          )}
-                        </View>
-                        
-                        <AppText style={[styles.commentText, { color: colors.text }]}>
-                          {comment.content}
-                        </AppText>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
+            <ForumSection
+              comments={comments}
+              loadingComments={loadingComments}
+              newComment={newComment}
+              setNewComment={setNewComment}
+              handleAddComment={handleAddComment}
+              submittingComment={submittingComment}
+              handleDeleteComment={handleDeleteComment}
+              currentUser={currentUser}
+              colors={colors}
+            />
           
           
           </View>
@@ -883,30 +761,4 @@ const styles = StyleSheet.create({
   declarationRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 6 },
   bulletIndicator: { width: 5, height: 5, borderRadius: 2.5, marginTop: 8, marginRight: 10 },
   declarationText: { flex: 1, lineHeight: 22 },
-  commentsSection: { marginTop: 32, paddingTop: 24, borderTopWidth: 1, borderTopColor: 'rgba(150, 150, 150, 0.15)' },
-  commentHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
-  headerTitleGroup: { flexDirection: 'row', alignItems: 'center' },
-  iconCircle: { width: 35, height: 35, borderRadius: 16, backgroundColor: DEVOTIONAL_RED + '12', justify: 'center', alignItems: 'center',
-    marginRight: 10, padding: 6},
-  commentSectionTitle: { fontSize: 18, letterSpacing: -0.3 },
-  badgePill: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12,},
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderRadius: 20, paddingLeft: 16, paddingRight: 6,
-    paddingVertical: 6, marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04,
-    shadowRadius: 8, elevation: 2,},
-  commentInput: { flex: 1, fontSize: 14, minHeight: 38, maxHeight: 90,  paddingTop: 6, paddingBottom: 6 },
-  sendButton: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center',  marginLeft: 8 },
-  loaderBox: { paddingVertical: 24, alignItems: 'center' },
-  emptyComments: { padding: 24, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
-  emptyIconCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(150, 150, 150, 0.1)',
-    justifyContent: 'center', alignItems: 'center',},
-  commentsList: { gap: 12 },
-  commentCard: { padding: 14, borderRadius: 16, borderWidth: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03, shadowRadius: 4, elevation: 1,},
-  commentTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  userInfo: { flexDirection: 'row', alignItems: 'center' },
-  userAvatar: { width: 32, height: 32, borderRadius: 16 },
-  userAvatarPlaceholder: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-  youTag: { backgroundColor: DEVOTIONAL_RED + '15', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, marginLeft: 6,},
-  deleteBtn: { padding: 4 },
-  commentText: { fontSize: 14, lineHeight: 21, letterSpacing: -0.1 },
 });

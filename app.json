@@ -5,11 +5,11 @@
     "scheme": "machaira",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/machairabot.png",
+    "icon": "./assets/images/MLogo.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/machairabot.png",
+      "image": "./assets/images/MLogo.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -22,14 +22,19 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/machairabot.png",
+        "foregroundImage": "./assets/images/MLogo.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.nanaakuagayles.machaira"
+      "package": "com.nanaakuagayles.machaira",
+      "queries": [
+        {
+          "package": "com.whatsapp"
+        }
+      ]
     },
     "web": {
-      "favicon": "./assets/images/machairabot.png"
+      "favicon": "./assets/images/MLogo.png"
     },
     "plugins": [
       "expo-font",
