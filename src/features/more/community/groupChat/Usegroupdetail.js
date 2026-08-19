@@ -5,20 +5,11 @@ import { supabase } from '../../../../config/supabaseClient';
 import { uploadGroupAvatar } from './groupStorage';
 import { registerForPushNotificationsAsync } from './pushNotifications';
 
-// NOTE ON SECURITY: `isAdmin` below only controls what buttons/screens are
-// shown on this device. It is NOT a security boundary. Every insert/update/
-// delete call in this hook must also be protected by Supabase Row Level
-// Security policies (see supabase_migration.sql) — otherwise any
-// authenticated user could call the Supabase client directly and bypass
-// these UI checks entirely.
-
 const MESSAGES_PAGE_SIZE = 30;
 const MEMBERS_PAGE_SIZE = 40;
 const MAX_MESSAGES_IN_MEMORY = 200;
 const SEND_COOLDOWN_MS = 1200;
 
-// Minimal placeholder content filter. This is NOT real moderation — swap in
-// a moderation API (or at least a maintained word list) before launch.
 const BLOCKED_WORDS = [];
 const containsBlockedContent = (text) => {
   if (BLOCKED_WORDS.length === 0) return false;
@@ -222,6 +213,10 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
   // ---------------------------------------------------------------------
   useEffect(() => {
     if (!group?.id) return;
+    if (!currentUser?.id) {
+      setIsLoading(false);
+      return;
+    }
     fetchGroupData({ showFullScreenLoading: true });
 
     const messageChannel = supabase
@@ -274,7 +269,7 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
     return () => {
       supabase.removeChannel(messageChannel);
     };
-  }, [group?.id, fetchGroupData]);
+  }, [group?.id, currentUser?.id, fetchGroupData]);
 
   // Auto-retry failed sends when connectivity returns
   useEffect(() => {
@@ -425,6 +420,7 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
   // Sending / retrying / discarding messages
   // ---------------------------------------------------------------------
   const insertMessage = async (content, replyToId = null) => {
+    if (!currentUser?.id) throw new Error('Not signed in');
     const { data, error } = await supabase
       .from('group_messages')
       .insert([{ group_id: group.id, user_id: currentUser.id, content, reply_to_id: replyToId }])
@@ -444,6 +440,11 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
   const handleSendMessage = async () => {
     const textToSend = inputText.trim();
     if (!textToSend || isSending) return;
+
+    if (!currentUser?.id) {
+      Alert.alert('Sign in required', 'Please sign in to send a message.');
+      return;
+    }
 
     if (!isOnline) {
       Alert.alert('You\u2019re offline', 'Connect to the internet to send messages.');
@@ -662,6 +663,11 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
   // Reactions
   // ---------------------------------------------------------------------
   const toggleReaction = useCallback(async (messageId, emoji) => {
+    if (!currentUser?.id) {
+      Alert.alert('Sign in required', 'Please sign in to react to messages.');
+      return;
+    }
+
     const existing = (reactionsByMessageId[messageId] || []).find(
       (r) => r.user_id === currentUser?.id && r.emoji === emoji
     );
@@ -714,12 +720,27 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
   };
 
   const handleJoinGroup = async () => {
+    if (!currentUser?.id) {
+      Alert.alert('Sign in required', 'Please sign in to join this group.');
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('group_members')
         .insert([{ group_id: group.id, user_id: currentUser.id }]);
 
-      if (error) throw error;
+      if (error) {
+        // 23505 = unique violation on (group_id, user_id) — the user is
+        // already a member (e.g. a double-tap or a stale "not joined" UI
+        // state). Treat this as success rather than surfacing an error.
+        if (error.code === '23505') {
+          setIsJoined(true);
+          await fetchGroupData();
+          return;
+        }
+        throw error;
+      }
 
       setIsJoined(true);
       await fetchGroupData();
@@ -730,6 +751,7 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
   };
 
   const handleLeaveGroup = async () => {
+    if (!currentUser?.id) return;
     setShowDropdown(false);
     Alert.alert('Leave Page', `Leave "${group.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -774,7 +796,7 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
     isUploadingAvatar, showAnnouncementModal, setShowAnnouncementModal, announcementText,
     setAnnouncementText, isPostingAnnouncement, isAdmin, flatListRef,
     isLoading, loadError, hasMoreMessages, isLoadingMore, hasMoreMembers, isLoadingMoreMembers,
-    isOnline, replyingTo, typingUsers, reactionsByMessageId,
+    isOnline, replyingTo, typingUsers, reactionsByMessageId, requiresAuth: !currentUser?.id,
     // handlers
     onRefresh, loadMoreMessages, loadMoreMembers, handleChangeGroupAvatar,
     handleSendMessage, handleInputChange, retryFailedMessage, discardFailedMessage,

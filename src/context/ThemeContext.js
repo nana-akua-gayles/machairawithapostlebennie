@@ -15,9 +15,9 @@ const lightColors = {
 };
 
 const darkColors = {
-  background: '#121212',   // Material Design dark theme base — neutral gray-black, not navy
-  card: '#1e1e1e',         // Slightly lighter than background so cards read as "elevated"
-  text: '#f4f4f5',         // Soft off-white — pure #fff on #121212 is harsher than needed
+  background: '#121212',  
+  card: '#1e1e1e',         
+  text: '#f4f4f5',         
   textSecondary: '#a1a1aa',
   border: '#2c2c2e',
   primary: '#ef4444',

@@ -1,8 +1,8 @@
-import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
-import { decode } from 'base64-arraybuffer';
 import { supabase } from '../../config/supabaseClient';
+
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 export const pickAndProcessImage = async () => {
   try {
@@ -13,15 +13,12 @@ export const pickAndProcessImage = async () => {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
-      quality: 0.7, // Compress to avoid memory overload
+      quality: 0.7
     });
 
-    if (result.canceled || !result.assets || result.assets.length === 0) {
-      return null;
-    }
-
+    if (result.canceled || !result.assets || result.assets.length === 0) return null;
     return result.assets[0].uri;
   } catch (err) {
     console.error('Image picker error:', err);
@@ -29,59 +26,34 @@ export const pickAndProcessImage = async () => {
   }
 };
 
-/**
- * 2. Testimony Image Upload Action
- * Reads, decodes, and uploads selected local image to Supabase Storage.
- */
 export const uploadTestimonyImage = async (fileUri, userId) => {
   try {
     if (!fileUri || !userId) return null;
 
-    // Fixed: variable name changed from imageUri to fileUri
     const file = new File(fileUri);
-
-    if (!file.exists) {
-      throw new Error('File does not exist');
-    }
-
-    console.log('File size:', file.size);
-
-    // Read local file as base64 string
-    const base64 = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    if (!base64) {
-      console.error('Failed to encode image to base64');
+    if (!file.exists) throw new Error('File does not exist');
+    if (file.size > MAX_UPLOAD_BYTES) {
+      console.warn('Image too large:', file.size);
       return null;
     }
 
-    // Clean path and prepare metadata
+    const bytes = await file.bytes();
+
     const cleanUri = fileUri.split('?')[0];
     const fileExt = cleanUri.split('.').pop()?.toLowerCase() || 'jpg';
     const mimeType = fileExt === 'png' ? 'image/png' : 'image/jpeg';
+    const filePath = `${userId}/${Date.now()}.${fileExt}`;
 
-    const fileName = `${Date.now()}.${fileExt}`;
-    const filePath = `${userId}/${fileName}`;
-
-    // Upload to Supabase Storage using ArrayBuffer
     const { data, error } = await supabase.storage
       .from('testimonies-media')
-      .upload(filePath, decode(base64), {
-        contentType: mimeType,
-        upsert: true,
-      });
+      .upload(filePath, bytes.buffer, { contentType: mimeType });
 
     if (error) {
       console.error('Supabase storage upload error:', error);
       return null;
     }
 
-    // Retrieve Public URL
-    const { data: publicUrlData } = supabase.storage
-      .from('testimonies-media')
-      .getPublicUrl(data.path);
-
+    const { data: publicUrlData } = supabase.storage.from('testimonies-media').getPublicUrl(data.path);
     return publicUrlData?.publicUrl || null;
   } catch (err) {
     console.error('Upload processing error:', err);

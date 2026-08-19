@@ -1,36 +1,43 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Switch, Pressable, Platform } from 'react-native';
-import { ChevronRight, ChevronLeft, LogOut, Trash2, Bell, Moon, ShieldCheck, Mail, Info } from 'lucide-react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Switch, Pressable, Platform } from 'react-native';
+import { ChevronRight, ChevronLeft, Bell, Moon, ShieldCheck, Mail, Info } from 'lucide-react-native';
 import { AppText } from '../../components/AppText';
 import { useTheme } from '../../context/ThemeContext';
 import * as Application from 'expo-application';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getSavedNotificationPreference, getOsPermissionStatus, enableNotifications, disableNotifications,
+} from './notifications';
 
 const SettingRow = ({ icon: Icon, title, onPress, type = 'action', value, onValueChange, destructive, colors = {}, isDark = false }) => (
-  <TouchableOpacity 
-    style={styles.row} 
-    onPress={onPress} 
+  <TouchableOpacity
+    style={styles.row}
+    onPress={onPress}
     disabled={type === 'action' ? !onPress : false}
+    accessibilityRole={type === 'toggle' ? undefined : 'button'}
+    accessibilityLabel={title}
   >
     <View style={styles.rowLeft}>
       <View style={[
-        styles.iconContainer, 
-        { backgroundColor: destructive 
-            ? (isDark ? '#450a0a' : '#fef2f2') 
-            : colors.cardBg 
+        styles.iconContainer,
+        { backgroundColor: destructive
+            ? (isDark ? '#450a0a' : '#fef2f2')
+            : colors.cardBg
         }
       ]}>
         <Icon color={destructive ? '#ef4444' : colors.iconColor} size={20} />
       </View>
       <AppText style={[styles.rowText, { color: destructive ? '#ef4444' : colors.bodyText }]}>{title}</AppText>
     </View>
-    
+
     {type === 'toggle' ? (
-      <Switch 
-        value={value} 
-        onValueChange={onValueChange} 
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
         trackColor={{ true: colors.switchTrack, false: isDark ? '#334155' : '#cbd5e1' }}
         thumbColor={Platform.OS === 'android' ? '#ffffff' : undefined}
+        accessibilityRole="switch"
+        accessibilityLabel={title}
+        accessibilityState={{ checked: value }}
       />
     ) : (
       <ChevronRight color={isDark ? '#475569' : '#cbd5e1'} size={20} />
@@ -39,10 +46,35 @@ const SettingRow = ({ icon: Icon, title, onPress, type = 'action', value, onValu
 );
 
 export default function SettingsScreen({ navigation }) {
-  const { isDark, toggleTheme } = useTheme();  
-  const [isNotificationsEnabled, setIsNotificationsEnabled] = React.useState(true);
+  const { isDark, toggleTheme } = useTheme();
+  const [isNotificationsEnabled, setIsNotificationsEnabled] = React.useState(false);
+  const [notifLoading, setNotifLoading] = React.useState(true);
 
-  const colors = {
+  React.useEffect(() => {
+    (async () => {
+      const [saved, osStatus] = await Promise.all([
+        getSavedNotificationPreference(),
+        getOsPermissionStatus(),
+      ]);
+      setIsNotificationsEnabled(saved && osStatus === 'granted');
+      setNotifLoading(false);
+    })();
+  }, []);
+
+  const handleToggleNotifications = async (next) => {
+    setIsNotificationsEnabled(next); // optimistic
+    if (next) {
+      const { enabled, error } = await enableNotifications();
+      setIsNotificationsEnabled(enabled);
+      if (error) {
+        console.warn('Notification setup failed:', error);
+      }
+    } else {
+      await disableNotifications();
+    }
+  };
+
+  const colors = React.useMemo(() => ({
     background: isDark ? '#09090b' : '#ffffff',
     cardBg: isDark ? '#18181b' : '#f8fafc',
     titleText: isDark ? '#ffffff' : '#0f172a',
@@ -51,39 +83,41 @@ export default function SettingsScreen({ navigation }) {
     iconColor: isDark ? '#d4d4d8' : '#352a48',
     backBtnBg: isDark ? '#27272a' : '#ffffff',
     backBtnIcon: isDark ? '#ffffff' : '#1e293b',
-    switchTrack: isDark ? '#dc2626' : '#352a48',
-  };
+    switchTrack: isDark ? '#818cf8' : '#352a48', // was #dc2626 (red) — reads as "destructive"
+  }), [isDark]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Pressable 
-          onPress={() => navigation.goBack()} 
+        <Pressable
+          onPress={() => navigation.goBack()}
           style={[styles.backButtonContainer, { backgroundColor: colors.backBtnBg }]}
           android_ripple={{ color: isDark ? '#ffffff10' : '#00000010', borderless: true }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
           <ChevronLeft size={24} color={colors.backBtnIcon} />
         </Pressable>
         <AppText type="bold" style={[styles.title, { color: colors.titleText }]}>Settings</AppText>
       </View>
 
-      {/* Content */}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        
+
         <AppText style={[styles.groupLabel, { color: colors.subText }]}>Preferences</AppText>
-        
-        <SettingRow 
-          colors={colors} isDark={isDark} icon={Bell} title="Push Notifications" 
-          type="toggle" value={isNotificationsEnabled} onValueChange={setIsNotificationsEnabled} 
+
+        <SettingRow
+          colors={colors} isDark={isDark} icon={Bell} title="Push Notifications"
+          type="toggle" value={isNotificationsEnabled}
+          onValueChange={handleToggleNotifications}
         />
-        <SettingRow 
-          colors={colors} isDark={isDark} icon={Moon} title="Dark Mode" 
-          type="toggle" value={isDark} onValueChange={toggleTheme} 
+        <SettingRow
+          colors={colors} isDark={isDark} icon={Moon} title="Dark Mode"
+          type="toggle" value={isDark} onValueChange={toggleTheme}
         />
 
         <AppText style={[styles.groupLabel, { color: colors.subText }]}>About</AppText>
         <SettingRow colors={colors} isDark={isDark} icon={ShieldCheck} title="Privacy Policy" onPress={() => navigation.navigate('PrivacyPolicy')} />
-        <SettingRow colors={colors} isDark={isDark} icon={Info} title={`Version ${Application.nativeApplicationVersion}`} onPress={() => navigation.navigate('Version')} />
+        <SettingRow colors={colors} isDark={isDark} icon={Info} title={`Version ${Application.nativeApplicationVersion ?? '—'}`} onPress={() => navigation.navigate('Version')} />
         <SettingRow colors={colors} isDark={isDark} icon={Mail} title="Contact Support" onPress={() => navigation.navigate('ContactSupport')} />
 
       </ScrollView>

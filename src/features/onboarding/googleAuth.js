@@ -3,18 +3,18 @@ import { supabase } from '../../config/supabaseClient';
 
 const redirectTo = 'machaira://';
 
-  export const executeGoogleSignIn = async ({ forceAccountPicker = false } = {}) => {
-    try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo,
-          skipBrowserRedirect: true,
-          ...(forceAccountPicker && {
-            queryParams: { prompt: 'select_account' },
-          }),
-        },
-      });
+export const executeGoogleSignIn = async ({ forceAccountPicker = false } = {}) => {
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+        skipBrowserRedirect: true,
+        ...(forceAccountPicker && {
+          queryParams: { prompt: 'select_account' },
+        }),
+      },
+    });
 
     if (error) {
       return { success: false, error: error.message };
@@ -28,11 +28,11 @@ const redirectTo = 'machaira://';
     const authResult = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
 
     if (authResult.type === 'success' && authResult.url) {
-       const hashIndex = authResult.url.indexOf('#');
-  const paramsString = hashIndex >= 0 ? authResult.url.substring(hashIndex + 1) : '';
-  const params = new URLSearchParams(paramsString);
-  const access_token = params.get('access_token');
-  const refresh_token = params.get('refresh_token');
+      const hashIndex = authResult.url.indexOf('#');
+      const paramsString = hashIndex >= 0 ? authResult.url.substring(hashIndex + 1) : '';
+      const params = new URLSearchParams(paramsString);
+      const access_token = params.get('access_token');
+      const refresh_token = params.get('refresh_token');
 
       if (access_token && refresh_token) {
         const { data: sessionData, error: sessionError } = await supabase.auth.setSession({

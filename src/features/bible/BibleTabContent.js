@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
   rectRetryButtonLabel: { color: '#ffffff', fontSize: 12 },
   versionsScroll: { paddingHorizontal: 16, paddingBottom: 100 },
   versionsTitleBlock: { paddingVertical: 14 },
-  versionsTitleText: { fontSize: 22, color: '#352a48', marginBottom: 4, fontWeight: '700' },
+  versionsTitleText: { fontSize: 21, color: '#352a48', marginBottom: 4, fontWeight: '700' },
   versionsSubtitleText: { color: '#64748b', fontSize: 14 },
   translationsList: { marginTop: 8, gap: 10 },
   activeTranslationCard: { borderLeftWidth: 4, borderLeftColor: '#352a48', backgroundColor: '#f5f3ff' },

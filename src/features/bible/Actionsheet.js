@@ -164,8 +164,6 @@ const styles = StyleSheet.create({
   actionToolLabel: { fontSize: 11, fontWeight: '500' },
   noteEditorWrapper: { marginTop: 4 },
   noteTitleField: { width: '100%', borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontWeight: '600', marginBottom: 8 },
-  // Capped height (was unbounded before) so a long note scrolls internally
-  // instead of growing the whole sheet upward off the top of the screen.
   noteInputField: { width: '100%', minHeight: 80, maxHeight: 160, borderRadius: 12, borderWidth: 1, padding: 12, fontSize: 14, textAlignVertical: 'top' },
   noteActionButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
   noteCancelButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1 },

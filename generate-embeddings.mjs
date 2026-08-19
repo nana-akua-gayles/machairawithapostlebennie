@@ -4,11 +4,11 @@ dotenv.config();
 import { createClient } from '@supabase/supabase-js';
 import { pipeline } from '@xenova/transformers';
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.SUPABASE_URL;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !serviceKey) {
-    console.error("CRITICAL ERROR: Missing Supabase URL or Key in your .env file!");
+    console.error("CRITICAL ERROR: Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY!");
     process.exit(1);
 }
 
@@ -27,11 +27,11 @@ async function runBatch() {
 
     if (error) {
         console.error("Error fetching devotionals:", error);
-        return;
+        process.exit(1);
     }
 
     if (!devotionals || devotionals.length === 0) {
-        console.log("No devotionals found missing embeddings!");
+        console.log("No devotionals found missing embeddings. Done.");
         return;
     }
 
@@ -44,7 +44,7 @@ async function runBatch() {
             console.log(`Processing Post ID: ${item.id}...`);
             const cleanText = item.pure_content.substring(0, 500);
             const output = await extractor(cleanText, { pooling: 'mean', normalize: true });
-            
+
             let embeddingArray;
             if (output.data) {
                 embeddingArray = Array.from(output.data);

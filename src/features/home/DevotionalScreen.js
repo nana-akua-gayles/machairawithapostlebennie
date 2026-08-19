@@ -7,7 +7,7 @@ import { ArrowLeft, Bookmark, Share2, Type, RotateCcw, Compass, BookOpen, Downlo
 import { AppText } from '../../components/AppText';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../config/supabaseClient';
-import { decodeEntities, processDevotionalHtml} from './formatDevotionalHtml';
+import { decodeEntities, processDevotionalHtml, parseBibleReading, splitDashPoints, parseDeclarations } from './formatDevotionalHtml';
 import DevotionalViewer from './DevotionalViewer';
 import ForumSection from './ForumSection';
 
@@ -29,8 +29,7 @@ export default function DevotionalScreen({ route, navigation }) {
   const [devotionalData, setDevotionalData] = useState({
     title: '', authorName: '', authorImageUrl: null, imageUrl: null, dateString: '', episodeNumber: null,});
   const [rawHtmlContent, setRawHtmlContent] = useState('');
-  const [footerCards, setFooterCards] = useState({ digDeeper: null, prayer: null, bibleReading: null, declarations: [],});
-
+  const [footerCards, setFooterCards] = useState({ digDeeper: null, prayer: null, prayerPoints: null, bibleReading: null, bibleReadingPlans: null, declarations: [],});
   const [currentUser, setCurrentUser] = useState(null);
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
@@ -319,36 +318,47 @@ setRawHtmlContent(formattedHtml);
         digDeeperText = stripHtmlEntities(digDeeperMatch[1]).trim();
       }
 
+      let prayerPoints = null;
       const prayerMatch = rawContent.match(/WE\s*PRAY([\s\S]*?)(?=BIBLE\s*READING|DECLARE)/i);
       if (prayerMatch && prayerMatch[1]) {
-        prayerText = stripHtmlEntities(prayerMatch[1]).trim();
-      }
-
-      const bibleMatch = rawContent.match(/BIBLE\s*READING[^]*?(\d{3}[\s\S]*?)(?=DECLARE)/i);
-      if (bibleMatch && bibleMatch[1]) {
-        bibleReadingText = stripHtmlEntities(bibleMatch[1]).trim();
-      } else {
-        const fallbackBibleMatch = rawContent.match(/BIBLE\s*READING\s*IN\s*THE\s*YEAR\s*\d{4}\s*([^\n]+[\s\S]*?)(?=DECLARE)/i);
-        if (fallbackBibleMatch && fallbackBibleMatch[1]) {
-          bibleReadingText = stripHtmlEntities(fallbackBibleMatch[1]).trim();
+        const cleanedPrayer = stripHtmlEntities(prayerMatch[1]).trim();
+        const split = splitDashPoints(cleanedPrayer);
+        if (split) {
+          prayerPoints = split;
+        } else {
+          prayerText = cleanedPrayer;
         }
       }
+
+      let bibleReadingPlans = null;
+const bibleSectionMatch = rawContent.match(/BIBLE\s*READING\s*IN\s*THE\s*YEAR([\s\S]*?)(?=DECLARE)/i);
+if (bibleSectionMatch && bibleSectionMatch[1]) {
+  const parsed = parseBibleReading(stripHtmlEntities(bibleSectionMatch[1]).trim());
+  if (parsed.readingPlans) {
+    bibleReadingPlans = parsed.readingPlans;
+  } else if (parsed.passages) {
+    bibleReadingText = parsed.day ? `Day ${parsed.day}: ${parsed.passages}` : parsed.passages;
+  }
+} else {
+  const dayStyleMatch = rawContent.match(/BIBLE\s*READING[^]*?(\d{3}[\s\S]*?)(?=DECLARE)/i);
+  if (dayStyleMatch && dayStyleMatch[1]) {
+    bibleReadingText = stripHtmlEntities(dayStyleMatch[1]).trim();
+  }
+}
 
       const declareMatch = rawContent.match(/DECLARE\s*THESE\s*WORDS\s*:?([\s\S]*)$/i);
       if (declareMatch && declareMatch[1]) {
         const rawDeclText = stripHtmlEntities(declareMatch[1]);
-        const rawItems = rawDeclText.split(/(?=[–\-—•])/);
-        
-        rawItems.forEach((item) => {
-          const cleaned = item.replace(/^[–\-—•\*\s:]+/, '').trim();
+        const { declarations } = parseDeclarations(rawDeclText);
+        declarations.forEach((cleaned) => {
           if (cleaned && !extractedDeclarations.includes(cleaned)) {
             extractedDeclarations.push(cleaned);
           }
         });
       }
 
-      setFooterCards({ digDeeper: digDeeperText || null,  prayer: prayerText || null, bibleReading: bibleReadingText || null, declarations: extractedDeclarations,});
-    } catch (err) {
+setFooterCards({ digDeeper: digDeeperText || null,  prayer: prayerText || null, prayerPoints, bibleReading: bibleReadingText || null, bibleReadingPlans, declarations: extractedDeclarations,});    }
+catch (err) {
       console.error('Error fetching devotional:', err);
       setError('Unable to load devotional content at this time.');
     } finally {
@@ -555,7 +565,7 @@ setRawHtmlContent(formattedHtml);
 
             <AppText 
               type="bold" 
-              style={[styles.mainTitle, { color: colors.text, fontSize: 24 + fontSizeOffset }]}
+              style={[styles.mainTitle, { color: colors.text, fontSize: 21 + fontSizeOffset }]}
             >
               {devotionalData.title}
             </AppText>
@@ -613,7 +623,7 @@ setRawHtmlContent(formattedHtml);
 
           <AppText 
             type="bold" 
-            style={[styles.titleText, { color: colors.text, fontSize: 21 + fontSizeOffset, marginBottom: 11, textAlign: 'center' }]}
+            style={[styles.titleText, { color: colors.text, fontSize: 18 + fontSizeOffset, marginBottom: 11, textAlign: 'center' }]}
           >
             {devotionalData.title.replace(/^episode\s*\d+[:\s-]*|^ep\.?\s*\d+[:\s-]*/i, '').trim()}
           </AppText>
@@ -644,7 +654,7 @@ setRawHtmlContent(formattedHtml);
               </View>
             )}
 
-            {footerCards.prayer && (
+            {(footerCards.prayer || footerCards.prayerPoints) && (
               <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.actionCardHeader}>
                   <HandHelping color={DEVOTIONAL_RED} size={18} style={styles.actionCardIcon} />
@@ -652,25 +662,46 @@ setRawHtmlContent(formattedHtml);
                     WE PRAY
                   </AppText>
                 </View>
-                <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
-                  {footerCards.prayer}
-                </AppText>
+                {footerCards.prayerPoints ? (
+                  footerCards.prayerPoints.map((point, idx) => (
+                    <AppText key={idx} style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1, marginTop: idx > 0 ? 8 : 0 }]}>
+                      {point}
+                    </AppText>
+                  ))
+                ) : (
+                  <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
+                    {footerCards.prayer}
+                  </AppText>
+                )}
               </View>
             )}
 
-            {footerCards.bibleReading && (
-              <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <View style={styles.actionCardHeader}>
-                  <BookOpen color={DEVOTIONAL_RED} size={18} style={styles.actionCardIcon} />
-                  <AppText type="bold" style={[styles.actionCardTitle, { color: DEVOTIONAL_RED, fontSize: 13 + fontSizeOffset }]}>
-                    BIBLE READING IN THE YEAR
-                  </AppText>
-                </View>
-                <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
-                  {footerCards.bibleReading}
-                </AppText>
-              </View>
-            )}
+            {(footerCards.bibleReading || footerCards.bibleReadingPlans) && (
+  <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View style={styles.actionCardHeader}>
+      <BookOpen color={DEVOTIONAL_RED} size={18} style={styles.actionCardIcon} />
+      <AppText type="bold" style={[styles.actionCardTitle, { color: DEVOTIONAL_RED, fontSize: 13 + fontSizeOffset }]}>
+        BIBLE READING IN THE YEAR
+      </AppText>
+    </View>
+    {footerCards.bibleReadingPlans ? (
+      footerCards.bibleReadingPlans.map((plan, pIdx) => (
+        <View key={pIdx} style={{ marginTop: pIdx > 0 ? 8 : 0 }}>
+          <AppText type="semibold" style={[styles.actionCardBody, { color: DEVOTIONAL_RED, fontSize: currentBaseFontSize - 2 }]}>
+            {plan.label}
+          </AppText>
+          <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
+            {plan.passage}
+          </AppText>
+        </View>
+      ))
+    ) : (
+      <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
+        {footerCards.bibleReading}
+      </AppText>
+    )}
+  </View>
+)}
 
             {footerCards.declarations.length > 0 && (
               <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -743,14 +774,14 @@ const styles = StyleSheet.create({
   epBg: { width: '100%', height: 180, borderRadius: 8 },
   dateBadgeContainer: { width: '100%', marginBottom: 30, marginTop: 20, alignItems: 'flex-end' },
   dateBadgeText: { fontSize: 12, letterSpacing: 1, textAlign: 'right', fontStyle: 'italic' },
-  mainTitle: { fontSize: 24, textAlign: 'left', lineHeight: 32, marginBottom: 10 },
+  mainTitle: { fontSize: 21, textAlign: 'left', lineHeight: 32, marginBottom: 10 },
   subtitleText: { fontSize: 15, textAlign: 'left', lineHeight: 22, marginBottom: 16 },
   updatedDateText: { fontSize: 12, marginBottom: 8 },
   byText: { fontSize: 12 },
   headerDivider: { width: 48, height: 2, borderRadius: 1, marginTop: 16, opacity: 0.3 },
   doubleLineContainer: { width: '100%' },
   titleLine: { height: 2, borderRadius: 1, width: '100%', backgroundColor: 'black', marginBottom: 3 },
-  titleText: { fontSize: 21 },
+  titleText: { fontSize: 18 },
   footerContainer: { marginTop: 20, gap: 14 },
   actionCard: { padding: 16, borderRadius: 12, borderWidth: 1 },
   actionCardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },

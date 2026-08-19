@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#ffffff' },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, marginTop: 10 },
   backButton: { padding: 10 },
-  headerTitle: { fontSize: 24, color: '#0f172a', marginLeft: 10 },
+  headerTitle: { fontSize: 22, color: '#0f172a', marginLeft: 10 },
   list: { padding: 10 },
   card: { 
     flex: 1, margin: 8, backgroundColor: '#fff', borderRadius: 24, 

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, FlatList, Modal, ActivityIndicator, TextInput, KeyboardAvoidingView, 
-  Platform, TouchableWithoutFeedback} from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
+import { StyleSheet, View, ScrollView, Pressable, FlatList, Modal, ActivityIndicator, TextInput, KeyboardAvoidingView,
+  Platform, TouchableWithoutFeedback, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Heart, MessageSquare, PenSquare, User, EyeOff, ChevronLeft, X, Send, CornerDownRight } from 'lucide-react-native';
+import { Heart, MessageSquare, PenSquare, User, EyeOff, ChevronLeft, X, Send, CornerDownRight, AlertCircle } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { AppText } from '../../components/AppText';
 import { supabase } from '../../config/supabaseClient';
@@ -12,65 +12,75 @@ import { CreateTestimonyForm } from './CreateTestimonyForm';
 import { useTheme } from '../../context/ThemeContext';
 
 const RED_ACCENT = '#dc2626';
+const RED_SOFT = '#f43f5e';
+const MAX_REPLY_DEPTH = 3;
 
-const CommentNode = memo(({ comment, isReply = false, onReply, onToggleLike }) => {
-  const { colors, isDark: isDarkMode } = useTheme();
+const timeAgo = (dateStr) => {
+  if (!dateStr) return '';
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
+const LikeHeart = ({ liked, size, onPress }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const bump = () => {
+    Animated.sequence([
+      Animated.spring(scale, { toValue: 1.35, useNativeDriver: true, speed: 40, bounciness: 12 }),
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 8 })
+    ]).start();
+    onPress();
+  };
+  return (
+    <Pressable onPress={bump} hitSlop={8}>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Heart color={liked ? RED_ACCENT : '#a1a1aa'} fill={liked ? RED_ACCENT : 'transparent'} size={size} />
+      </Animated.View>
+    </Pressable>
+  );
+};
+
+const CommentNode = memo(({ comment, depth = 0, onReply, onToggleLike }) => {
+  const { isDark: isDarkMode } = useTheme();
+  const canReply = depth < MAX_REPLY_DEPTH;
 
   return (
-    <View style={[styles.commentNodeRow, isReply && styles.replyNodeIndent]}>
+    <View style={[styles.commentNodeRow, depth > 0 && styles.replyNodeIndent]}>
       <View style={styles.commentAvatarWrapper}>
         {comment.profiles?.avatar_url ? (
           <Image source={{ uri: comment.profiles.avatar_url }} style={styles.commentAvatarImage} contentFit="cover" />
         ) : (
-          <View style={[styles.commentAvatarFallback, { backgroundColor: isDarkMode ? '#27272a' : '#27272a' }]}>
-            <User color="#ffffff" size={11} />
-          </View>
+          <View style={[styles.commentAvatarFallback, { backgroundColor: '#27272a' }]}><User color="#ffffff" size={11} /></View>
         )}
       </View>
 
       <View style={styles.commentContentColumn}>
-        <View style={styles.commentBubbleHeader}>
-          <AppText type="semiBold" style={[styles.commentAuthorName, { color: isDarkMode ? '#f4f4f5' : '#18181b' }]}>
-            {comment.profiles?.name || 'Member'}
-          </AppText>
-          <AppText type="regular" style={styles.commentTimeAgo}>
-            {comment.created_at ? new Date(comment.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
-          </AppText>
+        <View style={[styles.commentBubble, { backgroundColor: isDarkMode ? '#27272a' : '#f4f4f5' }]}>
+          <AppText type="semiBold" style={[styles.commentAuthorName, { color: isDarkMode ? '#f4f4f5' : '#18181b' }]}>{comment.profiles?.name || 'Member'}</AppText>
+          <AppText type="regular" style={[styles.commentBodyText, { color: isDarkMode ? '#d4d4d8' : '#3f3f46' }]}>{comment.content}</AppText>
         </View>
-
-        <AppText type="regular" style={[styles.commentBodyText, { color: isDarkMode ? '#d4d4d8' : '#3f3f46' }]}>
-          {comment.content}
-        </AppText>
 
         <View style={styles.commentMetaActionRow}>
-          <Pressable onPress={() => onReply({ id: comment.id, name: comment.profiles?.name || 'Member' })}>
-            <AppText type="bold" style={[styles.replyActionButton, { color: isDarkMode ? '#a1a1aa' : '#71717a' }]}>Reply</AppText>
-          </Pressable>
-
-          <Pressable style={styles.commentLikeButton} onPress={() => onToggleLike(comment.id)}>
-            <Heart 
-              color={comment.hasLiked ? RED_ACCENT : '#a1a1aa'} 
-              fill={comment.hasLiked ? RED_ACCENT : 'transparent'} 
-              size={11} 
-            />
-            {comment.likes_count > 0 && (
-              <AppText type="medium" style={[styles.commentLikeCount, comment.hasLiked && styles.likedCommentText]}>
-                {comment.likes_count}
-              </AppText>
-            )}
-          </Pressable>
+          <AppText type="regular" style={styles.commentTimeAgo}>{timeAgo(comment.created_at)}</AppText>
+          {canReply && (
+            <Pressable onPress={() => onReply({ id: comment.id, name: comment.profiles?.name || 'Member' })}>
+              <AppText type="bold" style={[styles.replyActionButton, { color: isDarkMode ? '#a1a1aa' : '#71717a' }]}>Reply</AppText>
+            </Pressable>
+          )}
+          <LikeHeart liked={comment.hasLiked} size={12} onPress={() => onToggleLike(comment.id)} />
+          {comment.likes_count > 0 && <AppText type="medium" style={[styles.commentLikeCount, comment.hasLiked && styles.likedCommentText]}>{comment.likes_count}</AppText>}
         </View>
 
-        {comment.replies && comment.replies.length > 0 && (
-          <View style={[styles.nestedRepliesContainer, { borderLeftColor: isDarkMode ? '#27272a' : '#f4f4f5' }]}>
+        {comment.replies?.length > 0 && (
+          <View style={[styles.nestedRepliesContainer, { borderLeftColor: isDarkMode ? '#3f3f46' : '#e4e4e7' }]}>
             {comment.replies.map(reply => (
-              <CommentNode 
-                key={reply.id} 
-                comment={reply} 
-                isReply={true} 
-                onReply={onReply} 
-                onToggleLike={onToggleLike} 
-              />
+              <CommentNode key={reply.id} comment={reply} depth={depth + 1} onReply={onReply} onToggleLike={onToggleLike} />
             ))}
           </View>
         )}
@@ -81,7 +91,6 @@ const CommentNode = memo(({ comment, isReply = false, onReply, onToggleLike }) =
 
 export const Testimony = ({ onBack }) => {
   const navigation = useNavigation();
-  const route = useRoute();
   const insets = useSafeAreaInsets();
   const { colors, isDark: isDarkMode } = useTheme();
 
@@ -89,6 +98,7 @@ export const Testimony = ({ onBack }) => {
   const [currentUserAvatar, setCurrentUserAvatar] = useState(null);
   const [activeCategory, setActiveCategory] = useState('All');
   const [isCreating, setIsCreating] = useState(false);
+  const [toast, setToast] = useState(null);
 
   const [activeCommentsTestimony, setActiveCommentsTestimony] = useState(null);
   const [comments, setComments] = useState([]);
@@ -97,245 +107,134 @@ export const Testimony = ({ onBack }) => {
   const [postingComment, setPostingComment] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
 
+  const likeInFlight = useRef(new Set());
   const { testimonies, loading, hasMore, fetchTestimonies, toggleLike, setTestimonies } = useWrittenTestimonies(currentUserId);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    supabase.auth.getUser().then(({ data, error }) => {
-      if (error) {
-        console.error('Auth error fetching user:', error);
-        return;
-      }
-      if (data?.user && isMounted) {
-        setCurrentUserId(data.user.id);
-        supabase
-          .from('profiles')
-          .select('avatar_url')
-          .eq('id', data.user.id)
-          .single()
-          .then(({ data: profileData, error: profileError }) => {
-            if (!profileError && profileData?.avatar_url && isMounted) {
-              setCurrentUserAvatar(profileData.avatar_url);
-            }
-          })
-          .catch(err => console.error('Error fetching profile avatar:', err));
-      }
-    }).catch(err => console.error('Auth error:', err));
-
-    return () => {
-      isMounted = false;
-    };
+  const showToast = useCallback((msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2600);
   }, []);
 
   useEffect(() => {
-    if (currentUserId) {
-      fetchTestimonies(activeCategory, true);
-    }
-  }, [activeCategory, currentUserId, fetchTestimonies]);
+    let isMounted = true;
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (error || !data?.user || !isMounted) return;
+      setCurrentUserId(data.user.id);
+      supabase.from('profiles').select('avatar_url').eq('id', data.user.id).single()
+        .then(({ data: p, error: e }) => { if (!e && p?.avatar_url && isMounted) setCurrentUserAvatar(p.avatar_url); });
+    });
+    return () => { isMounted = false; };
+  }, []);
+
+  useEffect(() => { if (currentUserId) fetchTestimonies(activeCategory, true); }, [activeCategory, currentUserId, fetchTestimonies]);
+
+  useEffect(() => {
+    if (!activeCommentsTestimony?.id) return;
+    const channel = supabase
+      .channel(`testimony-comments-${activeCommentsTestimony.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'written_testimony_comments', filter: `testimony_id=eq.${activeCommentsTestimony.id}` },
+        () => refetchComments(activeCommentsTestimony.id))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeCommentsTestimony?.id]);
 
   const handleBackPress = useCallback(() => {
-    if (typeof onBack === 'function') {
-      onBack();
-      return;
-    }
-    if (navigation?.canGoBack()) {
-      navigation.goBack();
-      return;
-    }
-    console.warn('No navigation target found to go back.');
+    if (typeof onBack === 'function') return onBack();
+    if (navigation?.canGoBack()) return navigation.goBack();
   }, [onBack, navigation]);
+
+  const buildCommentTree = useCallback((rawComments, likedIds) => {
+    const map = {}, top = [];
+    rawComments.forEach(c => { map[c.id] = { ...c, hasLiked: likedIds.has(c.id), likes_count: c.likes_count || 0, replies: [] }; });
+    rawComments.forEach(c => c.parent_id && map[c.parent_id] ? map[c.parent_id].replies.push(map[c.id]) : top.push(map[c.id]));
+    return top;
+  }, []);
+
+  const refetchComments = useCallback(async (testimonyId) => {
+    try {
+      const { data: rawComments, error } = await supabase
+        .from('written_testimony_comments')
+        .select(`id, content, created_at, user_id, parent_id, likes_count, profiles:user_id ( name, avatar_url )`)
+        .eq('testimony_id', testimonyId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      let likedIds = new Set();
+      if (currentUserId && rawComments?.length) {
+        const { data: likesData } = await supabase.from('written_testimony_comment_likes').select('comment_id')
+          .eq('user_id', currentUserId).in('comment_id', rawComments.map(c => c.id));
+        likedIds = new Set((likesData || []).map(l => l.comment_id));
+      }
+
+      setComments(buildCommentTree(rawComments || [], likedIds));
+    } catch (err) {
+      showToast("Couldn't load comments");
+    }
+  }, [currentUserId, buildCommentTree, showToast]);
 
   const openCommentsSheet = useCallback(async (testimony) => {
     setActiveCommentsTestimony(testimony);
     setCommentsLoading(true);
     setReplyingTo(null);
-
-    try {
-      const { data: rawComments, error } = await supabase
-        .from('written_testimony_comments')
-        .select(`
-          id,
-          content,
-          created_at,
-          user_id,
-          parent_id,
-          likes_count,
-          profiles:user_id ( name, avatar_url )
-        `)
-        .eq('testimony_id', testimony.id)
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching comments:', error);
-        setComments([]);
-        return;
-      }
-
-      let userLikedCommentIds = new Set();
-      if (currentUserId && rawComments && rawComments.length > 0) {
-        const { data: likesData, error: likesError } = await supabase
-          .from('written_testimony_comment_likes')
-          .select('comment_id')
-          .eq('user_id', currentUserId)
-          .in('comment_id', rawComments.map(c => c.id));
-
-        if (!likesError && likesData) {
-          userLikedCommentIds = new Set(likesData.map(l => l.comment_id));
-        }
-      }
-
-      const commentMap = {};
-      const topLevel = [];
-
-      (rawComments || []).forEach(c => {
-        const formatted = { 
-          ...c, 
-          hasLiked: userLikedCommentIds.has(c.id), 
-          likes_count: c.likes_count || 0,
-          replies: [] 
-        };
-        commentMap[c.id] = formatted;
-      });
-
-      (rawComments || []).forEach(c => {
-        if (c.parent_id && commentMap[c.parent_id]) {
-          commentMap[c.parent_id].replies.push(commentMap[c.id]);
-        } else {
-          topLevel.push(commentMap[c.id]);
-        }
-      });
-
-      setComments(topLevel);
-    } catch (err) {
-      console.error('Failed to load comments sheet:', err);
-    } finally {
-      setCommentsLoading(false);
-    }
-  }, [currentUserId]);
+    await refetchComments(testimony.id);
+    setCommentsLoading(false);
+  }, [refetchComments]);
 
   const handleToggleCommentLike = useCallback(async (commentId) => {
-    if (!currentUserId) return;
+    if (!currentUserId || likeInFlight.current.has(commentId)) return;
+    likeInFlight.current.add(commentId);
 
-    let previousCommentsState;
+    const updateLikes = (list, delta) => list.map(item => {
+      if (item.id === commentId) return { ...item, hasLiked: !item.hasLiked, likes_count: Math.max(0, item.likes_count + delta) };
+      if (item.replies?.length) return { ...item, replies: updateLikes(item.replies, delta) };
+      return item;
+    });
 
+    let wasLiked = false;
     setComments(prev => {
-      previousCommentsState = prev;
-      const updateLikes = (list) => {
-        return list.map(item => {
-          if (item.id === commentId) {
-            const newLiked = !item.hasLiked;
-            return {
-              ...item,
-              hasLiked: newLiked,
-              likes_count: newLiked ? item.likes_count + 1 : Math.max(0, item.likes_count - 1)
-            };
-          }
-          if (item.replies && item.replies.length > 0) {
-            return { ...item, replies: updateLikes(item.replies) };
-          }
-          return item;
-        });
-      };
-      return updateLikes(prev);
+      const find = (list) => list.reduce((acc, i) => acc || (i.id === commentId ? i : (i.replies?.length ? find(i.replies) : null)), null);
+      wasLiked = find(prev)?.hasLiked || false;
+      return updateLikes(prev, wasLiked ? -1 : 1);
     });
 
     try {
-      const { data: existing, error: selectError } = await supabase
-        .from('written_testimony_comment_likes')
-        .select('id')
-        .eq('comment_id', commentId)
-        .eq('user_id', currentUserId)
-        .maybeSingle();
-
-      if (selectError) throw selectError;
-
-      if (existing) {
-        const { error: deleteError } = await supabase
-          .from('written_testimony_comment_likes')
-          .delete()
-          .eq('id', existing.id);
-        if (deleteError) throw deleteError;
+      if (wasLiked) {
+        const { error } = await supabase.from('written_testimony_comment_likes').delete().eq('comment_id', commentId).eq('user_id', currentUserId);
+        if (error) throw error;
       } else {
-        const { error: insertError } = await supabase
-          .from('written_testimony_comment_likes')
-          .insert({ comment_id: commentId, user_id: currentUserId });
-        if (insertError) throw insertError;
+        const { error } = await supabase.from('written_testimony_comment_likes').insert({ comment_id: commentId, user_id: currentUserId });
+        if (error) throw error;
       }
     } catch (err) {
-      console.error('Error toggling comment like:', err);
-      if (previousCommentsState) {
-        setComments(previousCommentsState);
-      }
+      setComments(prev => updateLikes(prev, wasLiked ? 1 : -1));
+      showToast("Couldn't update like");
+    } finally {
+      likeInFlight.current.delete(commentId);
     }
-  }, [currentUserId]);
+  }, [currentUserId, showToast]);
 
   const handleSendComment = useCallback(async () => {
-    if (!newCommentText.trim() || !currentUserId || !activeCommentsTestimony || postingComment) return;
-
+    const trimmed = newCommentText.trim();
+    if (!trimmed || !currentUserId || !activeCommentsTestimony || postingComment) return;
     setPostingComment(true);
 
-    const payload = {
-      testimony_id: activeCommentsTestimony.id,
-      user_id: currentUserId,
-      content: newCommentText.trim(),
-      parent_id: replyingTo ? replyingTo.id : null
-    };
-
     try {
-      const { data, error } = await supabase
-        .from('written_testimony_comments')
-        .insert(payload)
-        .select(`
-          id,
-          content,
-          created_at,
-          user_id,
-          parent_id,
-          likes_count,
-          profiles:user_id ( name, avatar_url )
-        `)
-        .single();
-
-      if (error) {
-        console.error('Error posting comment:', error);
-        return;
-      }
-
-      const newCommentObj = { ...data, hasLiked: false, likes_count: 0, replies: [] };
-
-      if (replyingTo) {
-        const appendReplyRecursively = (list) => {
-          return list.map(item => {
-            if (item.id === replyingTo.id) {
-              return { ...item, replies: [...(item.replies || []), newCommentObj] };
-            }
-            if (item.replies && item.replies.length > 0) {
-              return { ...item, replies: appendReplyRecursively(item.replies) };
-            }
-            return item;
-          });
-        };
-        setComments(prev => appendReplyRecursively(prev));
-      } else {
-        setComments(prev => [newCommentObj, ...prev]);
-      }
+      const { error } = await supabase.from('written_testimony_comments').insert({
+        testimony_id: activeCommentsTestimony.id, user_id: currentUserId, content: trimmed, parent_id: replyingTo?.id || null
+      });
+      if (error) throw error;
 
       setNewCommentText('');
       setReplyingTo(null);
-
-      setTestimonies(prev => prev.map(item => {
-        if (item.id === activeCommentsTestimony.id) {
-          return { ...item, comments_count: (item.comments_count || 0) + 1 };
-        }
-        return item;
-      }));
+      await refetchComments(activeCommentsTestimony.id);
+      setTestimonies(prev => prev.map(t => t.id === activeCommentsTestimony.id ? { ...t, comments_count: (t.comments_count || 0) + 1 } : t));
     } catch (err) {
-      console.error('Failed to post comment:', err);
+      showToast("Couldn't post comment");
     } finally {
       setPostingComment(false);
     }
-  }, [newCommentText, currentUserId, activeCommentsTestimony, postingComment, replyingTo, setTestimonies]);
+  }, [newCommentText, currentUserId, activeCommentsTestimony, postingComment, replyingTo, refetchComments, setTestimonies, showToast]);
 
   const categories = useMemo(() => ['All', 'Divine Provision', 'Healing', 'Breakthrough', 'Strange Miracle'], []);
 
@@ -347,29 +246,19 @@ export const Testimony = ({ onBack }) => {
       <View style={[styles.cardContainer, { backgroundColor: colors.card, borderColor: isDarkMode ? '#27272a' : '#f1f5f9' }]}>
         <View style={styles.cardHeader}>
           {item.is_anonymous ? (
-            <View style={[styles.avatarFallbackCircle, { backgroundColor: isDarkMode ? '#27272a' : '#e4e4e7' }]}>
-              <EyeOff color={isDarkMode ? '#a1a1aa' : '#71717a'} size={13} />
-            </View>
+            <View style={[styles.avatarFallbackCircle, { backgroundColor: isDarkMode ? '#27272a' : '#e4e4e7' }]}><EyeOff color={isDarkMode ? '#a1a1aa' : '#71717a'} size={13} /></View>
           ) : hasAvatar ? (
             <Image source={{ uri: avatarUri }} style={styles.avatarImage} contentFit="cover" />
           ) : (
-            <View style={[styles.avatarFallbackCircle, styles.avatarUserBg]}>
-              <User color="#ffffff" size={13} />
-            </View>
+            <View style={[styles.avatarFallbackCircle, styles.avatarUserBg]}><User color="#ffffff" size={13} /></View>
           )}
 
           <View style={styles.authorMetaStack}>
             <View style={styles.authorBadgeRow}>
-              <AppText type="semiBold" style={[styles.authorNameText, { color: isDarkMode ? '#ffffff' : '#09090b' }]}>
-                {item.is_anonymous ? 'Anonymous' : (item.profiles?.name || 'Member')}
-              </AppText>
-              <View style={[styles.categoryBadge, { backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.15)' : '#fef2f2' }]}>
-                <AppText type="bold" style={[styles.categoryBadgeText, { color: isDarkMode ? '#f87171' : '#991b1b' }]}>{item.category}</AppText>
-              </View>
+              <AppText type="semiBold" style={[styles.authorNameText, { color: isDarkMode ? '#ffffff' : '#09090b' }]}>{item.is_anonymous ? 'Anonymous' : (item.profiles?.name || 'Member')}</AppText>
+              <View style={[styles.categoryBadge, { backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.15)' : '#fef2f2' }]}><AppText type="bold" style={[styles.categoryBadgeText, { color: isDarkMode ? '#f87171' : '#991b1b' }]}>{item.category}</AppText></View>
             </View>
-            <AppText type="regular" style={[styles.timeAgoText, { color: isDarkMode ? '#a1a1aa' : '#a1a1aa' }]}>
-              {item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}
-            </AppText>
+            <AppText type="regular" style={styles.timeAgoText}>{timeAgo(item.created_at)}</AppText>
           </View>
         </View>
 
@@ -377,57 +266,33 @@ export const Testimony = ({ onBack }) => {
 
         {item.attached_image_url && (
           <View style={[styles.imageAttachmentFrame, { backgroundColor: isDarkMode ? '#18181b' : '#f1f5f9', borderColor: isDarkMode ? '#27272a' : '#e2e8f0' }]}>
-            <Image 
-              source={{ uri: item.attached_image_url }} 
-              style={styles.imageAttachmentContent} 
-              contentFit="cover"
-              onError={(event) => {
-                console.log('Image load error:', item.attached_image_url, event.error);
-              }}
-            />
+            <Image source={{ uri: item.attached_image_url }} style={styles.imageAttachmentContent} contentFit="cover" />
           </View>
         )}
 
         <View style={[styles.cardFooter, { borderTopColor: isDarkMode ? '#27272a' : '#f1f5f9' }]}>
-          <Pressable style={styles.interactionButton} onPress={() => toggleLike(item.id, item.hasLiked)}>
-            <Heart 
-              color={item.hasLiked ? RED_ACCENT : (isDarkMode ? '#a1a1aa' : '#64748b')} 
-              fill={item.hasLiked ? RED_ACCENT : 'transparent'} 
-              size={15} 
-            />
-            <AppText type="semiBold" style={[styles.interactionText, { color: isDarkMode ? '#a1a1aa' : '#64748b' }, item.hasLiked && styles.likedText]}>
-              {item.likes_count || 0}
-            </AppText>
-          </Pressable>
+          <View style={styles.interactionButton}>
+            <LikeHeart liked={item.hasLiked} size={16} onPress={() => toggleLike(item.id, item.hasLiked)} />
+            <AppText type="semiBold" style={[styles.interactionText, { color: isDarkMode ? '#a1a1aa' : '#64748b' }, item.hasLiked && styles.likedText]}>{item.likes_count || 0}</AppText>
+          </View>
 
           <Pressable style={styles.interactionButton} onPress={() => openCommentsSheet(item)}>
-            <MessageSquare color={isDarkMode ? '#a1a1aa' : '#64748b'} size={15} />
-            <AppText type="semiBold" style={[styles.interactionText, { color: isDarkMode ? '#a1a1aa' : '#64748b' }]}>
-              {item.comments_count || 0}
-            </AppText>
+            <MessageSquare color={isDarkMode ? '#a1a1aa' : '#64748b'} size={16} />
+            <AppText type="semiBold" style={[styles.interactionText, { color: isDarkMode ? '#a1a1aa' : '#64748b' }]}>{item.comments_count || 0}</AppText>
           </Pressable>
         </View>
       </View>
     );
   }, [toggleLike, openCommentsSheet, colors, isDarkMode]);
 
-  const handleEndReached = useCallback(() => {
-    if (!loading && hasMore) {
-      fetchTestimonies(activeCategory, false);
-    }
-  }, [loading, hasMore, fetchTestimonies, activeCategory]);
+  const handleEndReached = useCallback(() => { if (!loading && hasMore) fetchTestimonies(activeCategory, false); }, [loading, hasMore, fetchTestimonies, activeCategory]);
 
   return (
     <View style={[styles.mainWrapper, { backgroundColor: colors.background }]}>
-      {/* Fixed Non-Scrollable Header */}
       <View style={styles.headerWrapper}>
         <View style={[styles.headerContainer, { paddingTop: insets.top + 6 }]}>
           <View style={styles.headerLeftSection}>
-            <Pressable 
-              style={[styles.backActionButton, { backgroundColor: isDarkMode ? '#27272a' : '#f4f4f5' }]} 
-              onPress={handleBackPress} 
-              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-            >
+            <Pressable style={[styles.backActionButton, { backgroundColor: isDarkMode ? '#27272a' : '#f4f4f5' }]} onPress={handleBackPress} hitSlop={15}>
               <ChevronLeft color={isDarkMode ? '#ffffff' : '#09090b'} size={20} strokeWidth={2.2} />
             </Pressable>
             <View style={styles.headerTextGroup}>
@@ -435,10 +300,8 @@ export const Testimony = ({ onBack }) => {
               <AppText type="regular" style={[styles.headerSubtitle, { color: isDarkMode ? '#a1a1aa' : '#71717a' }]}>Celebrate what God is doing</AppText>
             </View>
           </View>
-          
           <Pressable style={styles.createButton} onPress={() => setIsCreating(true)}>
-            <PenSquare color="#ffffff" size={14} />
-            <AppText type="semiBold" style={styles.createButtonText}>Share</AppText>
+            <PenSquare color="#ffffff" size={14} /><AppText type="semiBold" style={styles.createButtonText}>Share</AppText>
           </Pressable>
         </View>
 
@@ -447,10 +310,8 @@ export const Testimony = ({ onBack }) => {
             {categories.map((cat) => {
               const isActive = activeCategory === cat;
               return (
-                <Pressable key={cat} onPress={() => setActiveCategory(cat)} style={[styles.tabItem, isActive && styles.tabItemActive]}>
-                  <AppText type={isActive ? 'bold' : 'medium'} style={[styles.tabText, { color: isDarkMode ? '#a1a1aa' : '#71717a' }, isActive && styles.tabTextActive]}>
-                    {cat}
-                  </AppText>
+                <Pressable key={cat} onPress={() => setActiveCategory(cat)} style={styles.tabItem}>
+                  <AppText type={isActive ? 'bold' : 'medium'} style={[styles.tabText, { color: isDarkMode ? '#a1a1aa' : '#71717a' }, isActive && styles.tabTextActive]}>{cat}</AppText>
                   {isActive && <View style={styles.tabActiveIndicator} />}
                 </Pressable>
               );
@@ -470,61 +331,43 @@ export const Testimony = ({ onBack }) => {
         showsVerticalScrollIndicator={false}
       />
 
+      {toast && (
+        <View style={styles.toastWrapper}>
+          <View style={styles.toastBubble}><AlertCircle color="#ffffff" size={13} /><AppText type="medium" style={styles.toastText}>{toast}</AppText></View>
+        </View>
+      )}
+
       <Modal visible={isCreating} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setIsCreating(false)}>
-        <CreateTestimonyForm 
-          currentUserId={currentUserId} 
-          onCancelForm={() => setIsCreating(false)} 
-          onSuccess={() => {
-            setIsCreating(false);
-            fetchTestimonies(activeCategory, true);
-          }} 
-        />
+        <CreateTestimonyForm currentUserId={currentUserId} onCancelForm={() => setIsCreating(false)} onSuccess={() => { setIsCreating(false); fetchTestimonies(activeCategory, true); }} />
       </Modal>
 
       <Modal visible={!!activeCommentsTestimony} animationType="slide" transparent statusBarTranslucent onRequestClose={() => setActiveCommentsTestimony(null)}>
         <View style={styles.modalRoot}>
-          <TouchableWithoutFeedback onPress={() => setActiveCommentsTestimony(null)}>
-            <View style={styles.SheetOverlay} />
-          </TouchableWithoutFeedback>
+          <TouchableWithoutFeedback onPress={() => setActiveCommentsTestimony(null)}><View style={styles.SheetOverlay} /></TouchableWithoutFeedback>
 
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
-            style={styles.sheetContainerWrapper}
-          >
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetContainerWrapper}>
             <View style={[styles.SheetContent, { backgroundColor: colors.card, paddingBottom: insets.bottom + 8 }]}>
-              
+              <View style={styles.sheetGrabber} />
               <View style={[styles.sheetHeaderBar, { borderBottomColor: isDarkMode ? '#27272a' : '#f4f4f5' }]}>
                 <View style={styles.sheetTitleCenter}>
-                  <AppText type="bold" style={[styles.HeaderTitle, { color: isDarkMode ? '#ffffff' : '#18181b' }]}>
-                    {activeCommentsTestimony?.comments_count || comments.length} comments
-                  </AppText>
+                  <AppText type="bold" style={[styles.HeaderTitle, { color: isDarkMode ? '#ffffff' : '#18181b' }]}>{activeCommentsTestimony?.comments_count || comments.length} comments</AppText>
                 </View>
-                <Pressable style={styles.closeSheetButton} onPress={() => setActiveCommentsTestimony(null)}>
-                  <X color={isDarkMode ? '#ffffff' : '#18181b'} size={16} strokeWidth={2.5} />
-                </Pressable>
+                <Pressable style={styles.closeSheetButton} onPress={() => setActiveCommentsTestimony(null)}><X color={isDarkMode ? '#ffffff' : '#18181b'} size={16} strokeWidth={2.5} /></Pressable>
               </View>
 
               {commentsLoading ? (
-                <View style={styles.commentsLoaderFrame}>
-                  <ActivityIndicator size="small" color={RED_ACCENT} />
-                </View>
+                <View style={styles.commentsLoaderFrame}><ActivityIndicator size="small" color={RED_ACCENT} /></View>
               ) : (
                 <FlatList
                   data={comments}
                   keyExtractor={(item, index) => item?.id ? String(item.id) : String(index)}
-                  renderItem={({ item }) => (
-                    <CommentNode 
-                      comment={item} 
-                      onReply={setReplyingTo} 
-                      onToggleLike={handleToggleCommentLike} 
-                    />
-                  )}
+                  renderItem={({ item }) => <CommentNode comment={item} onReply={setReplyingTo} onToggleLike={handleToggleCommentLike} />}
                   contentContainerStyle={styles.CommentsListContainer}
                   showsVerticalScrollIndicator={false}
                   ListEmptyComponent={() => (
                     <View style={styles.EmptyState}>
                       <AppText type="semiBold" style={[styles.emptyTitle, { color: isDarkMode ? '#ffffff' : '#18181b' }]}>No comments yet</AppText>
-                      <AppText type="regular" style={[styles.emptySubtitle, { color: isDarkMode ? '#a1a1aa' : '#a1a1aa' }]}>Be the first to share an encouragement!</AppText>
+                      <AppText type="regular" style={styles.emptySubtitle}>Be the first to share an encouragement!</AppText>
                     </View>
                   )}
                 />
@@ -534,41 +377,28 @@ export const Testimony = ({ onBack }) => {
                 <View style={[styles.replyingBanner, { backgroundColor: isDarkMode ? '#27272a' : '#f4f4f5' }]}>
                   <View style={styles.replyingTextGroup}>
                     <CornerDownRight color={isDarkMode ? '#a1a1aa' : '#71717a'} size={11} />
-                    <AppText type="regular" style={[styles.replyingLabel, { color: isDarkMode ? '#a1a1aa' : '#71717a' }]}>
-                      Replying to <AppText type="bold" style={[styles.replyingTarget, { color: isDarkMode ? '#ffffff' : '#09090b' }]}>{replyingTo.name}</AppText>
-                    </AppText>
+                    <AppText type="regular" style={[styles.replyingLabel, { color: isDarkMode ? '#a1a1aa' : '#71717a' }]}>Replying to <AppText type="bold" style={{ color: isDarkMode ? '#ffffff' : '#09090b' }}>{replyingTo.name}</AppText></AppText>
                   </View>
-                  <Pressable onPress={() => setReplyingTo(null)}>
-                    <X color={isDarkMode ? '#a1a1aa' : '#71717a'} size={13} />
-                  </Pressable>
+                  <Pressable onPress={() => setReplyingTo(null)}><X color={isDarkMode ? '#a1a1aa' : '#71717a'} size={13} /></Pressable>
                 </View>
               )}
 
               <View style={[styles.InputDrawer, { borderTopColor: isDarkMode ? '#27272a' : '#f4f4f5' }]}>
                 <View style={[styles.inputAvatarFrame, { backgroundColor: isDarkMode ? '#27272a' : '#f4f4f5' }]}>
-                  {currentUserAvatar ? (
-                    <Image source={{ uri: currentUserAvatar }} style={styles.inputAvatarImage} contentFit="cover" />
-                  ) : (
-                    <User color={isDarkMode ? '#a1a1aa' : '#a1a1aa'} size={13} />
-                  )}
+                  {currentUserAvatar ? <Image source={{ uri: currentUserAvatar }} style={styles.inputAvatarImage} contentFit="cover" /> : <User color="#a1a1aa" size={13} />}
                 </View>
                 <TextInput
                   style={[styles.TextInput, { backgroundColor: isDarkMode ? '#27272a' : '#f4f4f5', color: isDarkMode ? '#ffffff' : '#09090b' }]}
                   placeholder={replyingTo ? `Reply to ${replyingTo.name}...` : "Add comment..."}
-                  placeholderTextColor={isDarkMode ? '#a1a1aa' : '#a1a1aa'}
+                  placeholderTextColor="#a1a1aa"
                   value={newCommentText}
                   onChangeText={setNewCommentText}
                   multiline
                 />
-                <Pressable 
-                  style={[styles.SendButton, (!newCommentText.trim() || postingComment) && styles.SendDisabled]} 
-                  onPress={handleSendComment}
-                  disabled={!newCommentText.trim() || postingComment}
-                >
-                  <Send color="#ffffff" size={12} />
+                <Pressable style={[styles.SendButton, (!newCommentText.trim() || postingComment) && styles.SendDisabled]} onPress={handleSendComment} disabled={!newCommentText.trim() || postingComment}>
+                  {postingComment ? <ActivityIndicator size="small" color="#ffffff" /> : <Send color="#ffffff" size={12} />}
                 </Pressable>
               </View>
-
             </View>
           </KeyboardAvoidingView>
         </View>
@@ -578,81 +408,59 @@ export const Testimony = ({ onBack }) => {
 };
 
 const styles = StyleSheet.create({
-  mainWrapper: { flex: 1 },
-  listContainer: { paddingBottom: 40, paddingTop: 4 },
-  headerWrapper: { zIndex: 10 },
+  mainWrapper: { flex: 1 }, listContainer: { paddingBottom: 40, paddingTop: 4 }, headerWrapper: { zIndex: 10 },
   headerContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8, zIndex: 10 },
   headerLeftSection: { flexDirection: 'row', alignItems: 'center', gap: 12, zIndex: 10 },
   backActionButton: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
-  headerTextGroup: { marginLeft: 2 },
-  headerTitle: { fontSize: 18, letterSpacing: -0.3 },
-  headerSubtitle: { fontSize: 11, marginTop: 1 },
-  createButton: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: RED_ACCENT, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 10 },
+  headerTextGroup: { marginLeft: 2 }, headerTitle: { fontSize: 18, letterSpacing: -0.3 }, headerSubtitle: { fontSize: 11, marginTop: 1 },
+  createButton: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: RED_ACCENT, paddingVertical: 7, paddingHorizontal: 13, borderRadius: 12, shadowColor: RED_ACCENT, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
   createButtonText: { color: '#ffffff', fontSize: 11 },
-  tabBarWrapper: { borderBottomWidth: 1, marginBottom: 12 },
-  tabScrollContainer: { paddingHorizontal: 16, gap: 18 },
-  tabItem: { paddingVertical: 10, position: 'relative', alignItems: 'center' },
-  tabItemActive: {},
-  tabText: { fontSize: 12 },
-  tabTextActive: { color: RED_ACCENT },
-  tabActiveIndicator: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, backgroundColor: RED_ACCENT, borderRadius: 1 },
-  cardContainer: { borderWidth: 1, borderRadius: 16, padding: 14, marginHorizontal: 16, marginBottom: 12 },
+  tabBarWrapper: { borderBottomWidth: 1, marginBottom: 12 }, tabScrollContainer: { paddingHorizontal: 16, gap: 20 },
+  tabItem: { paddingVertical: 10, position: 'relative', alignItems: 'center' }, tabText: { fontSize: 12 }, tabTextActive: { color: RED_ACCENT },
+  tabActiveIndicator: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2.5, backgroundColor: RED_ACCENT, borderRadius: 2 },
+  cardContainer: { borderWidth: 1, borderRadius: 18, padding: 14, marginHorizontal: 16, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatarImage: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#e2e8f0' },
-  avatarFallbackCircle: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  avatarUserBg: { backgroundColor: RED_ACCENT },
-  avatarAnonBg: { backgroundColor: '#e4e4e7' },
-  authorMetaStack: { flex: 1 },
+  avatarImage: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#e2e8f0' },
+  avatarFallbackCircle: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  avatarUserBg: { backgroundColor: RED_ACCENT }, authorMetaStack: { flex: 1 },
   authorBadgeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  authorNameText: { fontSize: 12, flex: 1 },
-  timeAgoText: { fontSize: 10, marginTop: 1 },
-  categoryBadge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 6 },
-  categoryBadgeText: { fontSize: 9 },
-  contentBodyText: { fontSize: 12, marginTop: 10, lineHeight: 18 },
-  imageAttachmentFrame: { width: '100%', height: 160, borderRadius: 12, overflow: 'hidden', marginTop: 10, borderWidth: 1 },
+  authorNameText: { fontSize: 12, flex: 1 }, timeAgoText: { fontSize: 10, marginTop: 1, color: '#a1a1aa' },
+  categoryBadge: { paddingVertical: 3, paddingHorizontal: 9, borderRadius: 8 }, categoryBadgeText: { fontSize: 9 },
+  contentBodyText: { fontSize: 12.5, marginTop: 10, lineHeight: 19 },
+  imageAttachmentFrame: { width: '100%', height: 170, borderRadius: 14, overflow: 'hidden', marginTop: 10, borderWidth: 1 },
   imageAttachmentContent: { width: '100%', height: '100%' },
-  cardFooter: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 12, paddingTop: 10, borderTopWidth: 1 },
-  interactionButton: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  interactionText: { fontSize: 11 },
-  likedText: { color: RED_ACCENT },
+  cardFooter: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 12, paddingTop: 10, borderTopWidth: 1 },
+  interactionButton: { flexDirection: 'row', alignItems: 'center', gap: 6 }, interactionText: { fontSize: 11 }, likedText: { color: RED_ACCENT },
   loadingIndicator: { marginVertical: 14 },
-  modalRoot: { flex: 1, justifyContent: 'flex-end' },
-  SheetOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
+  toastWrapper: { position: 'absolute', bottom: 24, left: 0, right: 0, alignItems: 'center' },
+  toastBubble: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#18181b', paddingVertical: 9, paddingHorizontal: 16, borderRadius: 20, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 6 },
+  toastText: { color: '#ffffff', fontSize: 12 },
+  modalRoot: { flex: 1, justifyContent: 'flex-end' }, SheetOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
   sheetContainerWrapper: { width: '100%', maxHeight: '85%', justifyContent: 'flex-end' },
-  SheetContent: { borderTopLeftRadius: 16, borderTopRightRadius: 16, height: '100%', width: '100%', paddingTop: 4 },
+  SheetContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '100%', width: '100%', paddingTop: 8 },
+  sheetGrabber: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#d4d4d8', alignSelf: 'center', marginBottom: 6 },
   sheetHeaderBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  sheetTitleCenter: { flex: 1, alignItems: 'center' },
-  HeaderTitle: { fontSize: 12, letterSpacing: -0.2 },
-  closeSheetButton: { padding: 4 },
+  sheetTitleCenter: { flex: 1, alignItems: 'center' }, HeaderTitle: { fontSize: 12, letterSpacing: -0.2 }, closeSheetButton: { padding: 4 },
   commentsLoaderFrame: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   CommentsListContainer: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 16 },
   EmptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
-  emptyTitle: { fontSize: 13, marginBottom: 2 },
-  emptySubtitle: { fontSize: 11 },
-  commentNodeRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  replyNodeIndent: { marginTop: 8, marginBottom: 0 },
-  commentAvatarWrapper: { width: 26, height: 26, borderRadius: 13, overflow: 'hidden' },
-  commentAvatarImage: { width: '100%', height: '100%' },
+  emptyTitle: { fontSize: 13, marginBottom: 2 }, emptySubtitle: { fontSize: 11, color: '#a1a1aa' },
+  commentNodeRow: { flexDirection: 'row', gap: 8, marginBottom: 12 }, replyNodeIndent: { marginTop: 8, marginBottom: 0 },
+  commentAvatarWrapper: { width: 26, height: 26, borderRadius: 13, overflow: 'hidden' }, commentAvatarImage: { width: '100%', height: '100%' },
   commentAvatarFallback: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
   commentContentColumn: { flex: 1 },
-  commentBubbleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 1 },
-  commentAuthorName: { fontSize: 11 },
-  commentBodyText: { fontSize: 12, lineHeight: 16, marginTop: 1 },
-  commentMetaActionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
-  commentTimeAgo: { fontSize: 10, color: '#a1a1aa' },
-  replyActionButton: { fontSize: 10 },
-  nestedRepliesContainer: { marginTop: 6, paddingLeft: 6, borderLeftWidth: 1.5 },
-  commentLikeButton: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  commentLikeCount: { fontSize: 10, color: '#a1a1aa' },
-  likedCommentText: { color: RED_ACCENT },
+  commentBubble: { borderRadius: 14, borderTopLeftRadius: 4, paddingHorizontal: 11, paddingVertical: 8 },
+  commentAuthorName: { fontSize: 11 }, commentBodyText: { fontSize: 12, lineHeight: 16, marginTop: 2 },
+  commentMetaActionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4, paddingLeft: 2 },
+  commentTimeAgo: { fontSize: 10, color: '#a1a1aa' }, replyActionButton: { fontSize: 10 },
+  nestedRepliesContainer: { marginTop: 6, paddingLeft: 10, borderLeftWidth: 1.5 },
+  commentLikeCount: { fontSize: 10, color: '#a1a1aa' }, likedCommentText: { color: RED_ACCENT },
   replyingBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 6 },
-  replyingTextGroup: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  replyingLabel: { fontSize: 11 },
-  replyingTarget: {},
+  replyingTextGroup: { flexDirection: 'row', alignItems: 'center', gap: 5 }, replyingLabel: { fontSize: 11 },
   InputDrawer: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 8, borderTopWidth: 1 },
   inputAvatarFrame: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   inputAvatarImage: { width: '100%', height: '100%' },
   TextInput: { flex: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, fontSize: 12, maxHeight: 80 },
-  SendButton: { width: 26, height: 26, borderRadius: 13, backgroundColor: RED_ACCENT, alignItems: 'center', justifyContent: 'center' },
+  SendButton: { width: 28, height: 28, borderRadius: 14, backgroundColor: RED_ACCENT, alignItems: 'center', justifyContent: 'center' },
   SendDisabled: { opacity: 0.4 }
 });

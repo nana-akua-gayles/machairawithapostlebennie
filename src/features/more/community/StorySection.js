@@ -1,9 +1,10 @@
-import React, { useRef, useState, useCallback, memo, useEffect } from 'react';
+import React, { useRef, useState, useCallback, memo, useEffect, useMemo } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, StatusBar, KeyboardAvoidingView, Platform, Image, Pressable, ActivityIndicator, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Plus, X, Send, Trash2, Eye, Palette } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '../../../components/AppText';
+import { useTheme } from '../../../context/ThemeContext';
 
 const RED = '#E11D48';
 const DEEP_PURPLE = '#352a48';
@@ -16,30 +17,37 @@ const BACKGROUND_PRESETS = [
   { id: '5', colors: ['#B45309', '#451A03'], name: 'Amber Glow' },
 ];
 
-const MemoizedStoryItem = memo(({ item, viewedIds, onPress }) => {
+const formatTimeAgo = (dateString) => {
+  if (!dateString) return 'Just now';
+  const now = new Date();
+  const posted = new Date(dateString);
+  const diffMs = now - posted;
+  const diffMins = Math.max(1, Math.floor(diffMs / (1000 * 60)));
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+};
+
+const MemoizedStoryItem = memo(({ item, viewedIds, onPress, colors }) => {
+  const s = getStyles(colors);
   const latestPost = item?.posts?.[item.posts.length - 1] || {};
   const isAllViewed = item?.posts?.every((p) => viewedIds.has(p.id)) ?? false;
-  const ringColors = isAllViewed ? ['#94A3B8', '#64748B'] : [RED, '#9F1239'];
+  const ringColors = isAllViewed ? [colors.tabBarInactive, colors.textSecondary] : [RED, '#9F1239'];
 
   return (
-    <TouchableOpacity 
-      style={styles.storyWrapper} 
-      accessibilityRole="button"
-      accessibilityLabel={`View story by ${item?.user_name || 'Member'}`}
-      onPress={() => onPress(item)}
-    >
-      <LinearGradient colors={ringColors} style={styles.gradientBorder}>
-        <View style={styles.storyCircleInner}>
+    <TouchableOpacity style={s.storyWrapper} accessibilityRole="button" accessibilityLabel={`View story by ${item?.user_name || 'Member'}`} onPress={() => onPress(item)}>
+      <LinearGradient colors={ringColors} style={s.gradientBorder}>
+        <View style={s.storyCircleInner}>
           {latestPost.background ? (
-            <LinearGradient colors={latestPost.background} style={styles.innerGradient}>
-              <AppText numberOfLines={2} style={[styles.storyPreviewText, { color: '#FFF' }]}>{latestPost.content}</AppText>
-            </LinearGradient>
+            <LinearGradient colors={latestPost.background} style={s.innerGradient}><AppText numberOfLines={2} style={[s.storyPreviewText, { color: '#FFF' }]}>{latestPost.content}</AppText></LinearGradient>
           ) : (
-            <AppText numberOfLines={2} style={styles.storyPreviewText}>{latestPost.content}</AppText>
+            <AppText numberOfLines={2} style={s.storyPreviewText}>{latestPost.content}</AppText>
           )}
         </View>
       </LinearGradient>
-      <AppText style={styles.storyName} numberOfLines={1}>{item?.user_name || 'Member'}</AppText>
+      <AppText style={s.storyName} numberOfLines={1}>{item?.user_name || 'Member'}</AppText>
     </TouchableOpacity>
   );
 }, (prevProps, nextProps) => {
@@ -47,154 +55,100 @@ const MemoizedStoryItem = memo(({ item, viewedIds, onPress }) => {
   const nextLatestId = nextProps.item?.posts?.[nextProps.item.posts.length - 1]?.id;
   const prevViewed = prevProps.item?.posts?.every((p) => prevProps.viewedIds.has(p.id));
   const nextViewed = nextProps.item?.posts?.every((p) => nextProps.viewedIds.has(p.id));
-  
-  return prevLatestId === nextLatestId && prevViewed === nextViewed;
+  return prevLatestId === nextLatestId && prevViewed === nextViewed && prevProps.colors === nextProps.colors;
 });
 
-
-export const StorySection = ({ 
-  displayGroups = [], 
-  myGroup, 
-  hasMyStory, 
-  viewedIds = new Set(), 
-  currentUser,
-  onCreateStoryPress,
-  onStoryPress,
-  onDeleteStory,
-  onRecordView,
-  refreshStories 
-}) => {
+export const StorySection = ({ displayGroups = [], myGroup, hasMyStory, viewedIds = new Set(), currentUser, onCreateStoryPress, onStoryPress, onDeleteStory, onRecordView, refreshStories }) => {
   const insets = useSafeAreaInsets();
-  
+  const { colors } = useTheme();
+  const s = useMemo(() => getStyles(colors), [colors]);
+
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [viewerModalVisible, setViewerModalVisible] = useState(false);
   const [viewersListModalVisible, setViewersListModalVisible] = useState(false);
-  
   const [storyContent, setStoryContent] = useState('');
   const [selectedBackground, setSelectedBackground] = useState(BACKGROUND_PRESETS[0]);
-  
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  
   const [selectedUserIndex, setSelectedUserIndex] = useState(0);
   const [currentPostIndex, setCurrentPostIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  
+
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
-
   const pressStartTimeRef = useRef(0);
   const isMountedRef = useRef(true);
+  const recordedViewsRef = useRef(new Set());
 
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
+  useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false; }; }, []);
 
   const sortedOtherGroups = displayGroups.filter((g) => g.user_id !== (currentUser?.id));
 
   const openViewerForGroup = useCallback((group) => {
     let targetIdx = displayGroups.findIndex((g) => g.user_id === group.user_id);
-
     setSelectedUserIndex(targetIdx !== -1 ? targetIdx : 0);
     setCurrentPostIndex(0);
     setProgress(0);
     setIsPaused(false);
     setViewersListModalVisible(false);
     setViewerModalVisible(true);
-
-    if (onStoryPress) {
-      onStoryPress(group);
-    }
+    if (onStoryPress) onStoryPress(group);
   }, [displayGroups, onStoryPress]);
 
   const activeUserGroup = displayGroups[selectedUserIndex] || {};
   const activePosts = activeUserGroup.posts || [];
   const activePost = activePosts[currentPostIndex] || {};
+  const hasActivePost = !!activePost?.id;
   const myUserId = currentUser?.id;
   const isMyActiveStory = activeUserGroup.user_id === myUserId;
   const authorProfilePic = activeUserGroup.user_avatar || activePost.avatar_url || null;
 
-  const recordedViewsRef = useRef(new Set());
-
   useEffect(() => {
     if (viewerModalVisible && activePost?.id && !isMyActiveStory && currentUser?.id) {
       const viewKey = `${activePost.id}-${currentUser.id}`;
-
       if (!recordedViewsRef.current.has(viewKey)) {
         recordedViewsRef.current.add(viewKey);
-
-        const payload = {
-          p_status_id: activePost.id,
-          p_user_id: currentUser.id,
-          p_name: currentUser.name || currentUser.full_name || 'Member',
-          p_avatar: currentUser.avatar || currentUser.avatar_url || null
-        };
-
-        if (onRecordView) {
-          onRecordView(payload);
-        }
+        onRecordView?.({ p_status_id: activePost.id, p_user_id: currentUser.id, p_name: currentUser.name || currentUser.full_name || 'Member', p_avatar: currentUser.avatar || currentUser.avatar_url || null });
       }
     }
   }, [viewerModalVisible, selectedUserIndex, currentPostIndex, activePost?.id, isMyActiveStory, currentUser?.id, onRecordView]);
 
-  
   const handleNextStory = useCallback(() => {
     if (viewersListModalVisible) return;
     setCurrentPostIndex((prevPostIndex) => {
-      if (prevPostIndex < activePosts.length - 1) {
+      if (prevPostIndex < activePosts.length - 1) { setProgress(0); return prevPostIndex + 1; }
+      setSelectedUserIndex((prevUserIndex) => {
+        if (prevUserIndex < displayGroups.length - 1) {
+          const nextIndex = prevUserIndex + 1;
+          setProgress(0);
+          if (displayGroups[nextIndex] && onStoryPress) onStoryPress(displayGroups[nextIndex]);
+          return nextIndex;
+        }
+        setViewerModalVisible(false);
         setProgress(0);
-        return prevPostIndex + 1;
-      } else {
-        setSelectedUserIndex((prevUserIndex) => {
-          if (prevUserIndex < displayGroups.length - 1) {
-            const nextIndex = prevUserIndex + 1;
-            setProgress(0);
-            if (displayGroups[nextIndex] && onStoryPress) {
-              onStoryPress(displayGroups[nextIndex]);
-            }
-            return nextIndex;
-          } else {
-            setViewerModalVisible(false);
-            setProgress(0);
-            setIsPaused(false);
-            return 0;
-          }
-        });
+        setIsPaused(false);
         return 0;
-      }
+      });
+      return 0;
     });
   }, [activePosts.length, displayGroups, onStoryPress, viewersListModalVisible]);
 
   useEffect(() => {
     let timer;
     if (viewerModalVisible && !viewersListModalVisible && activePosts.length > 0) {
-      const interval = 50; 
-      const totalTime = 5000; 
-      
+      const interval = 50;
+      const totalTime = 5000;
       timer = setInterval(() => {
-        if (!isPausedRef.current) {
-          setProgress((prev) => {
-            if (prev >= 1) {
-              handleNextStory();
-              return 0;
-            }
-            return prev + (interval / totalTime);
-          });
-        }
+        if (!isPausedRef.current) setProgress((prev) => { if (prev >= 1) { handleNextStory(); return 0; } return prev + (interval / totalTime); });
       }, interval);
     }
     return () => clearInterval(timer);
   }, [viewerModalVisible, viewersListModalVisible, selectedUserIndex, currentPostIndex, activePosts.length, handleNextStory]);
 
   const handlePrevStory = () => {
-    if (currentPostIndex > 0) {
-      setCurrentPostIndex((prev) => prev - 1);
-      setProgress(0);
-    } else if (selectedUserIndex > 0) {
+    if (currentPostIndex > 0) { setCurrentPostIndex((prev) => prev - 1); setProgress(0); }
+    else if (selectedUserIndex > 0) {
       const prevIndex = selectedUserIndex - 1;
       setSelectedUserIndex(prevIndex);
       const prevGroupPosts = displayGroups[prevIndex]?.posts || [];
@@ -203,34 +157,13 @@ export const StorySection = ({
     }
   };
 
-  const formatTimeAgo = (dateString) => {
-    if (!dateString) return 'Just now';
-    const now = new Date();
-    const posted = new Date(dateString);
-    const diffHours = Math.floor((now - posted) / (1000 * 60 * 60));
-    if (diffHours < 1) {
-      const diffMins = Math.max(1, Math.floor((now - posted) / (1000 * 60)));
-      return `${diffMins}m ago`;
-    }
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return '1d ago';
-  };
-
   const handleCreateStatus = async () => {
-    if (!storyContent.trim()) {
-      Alert.alert('Notice', 'Please write something for your story.');
-      return;
-    }
+    if (!storyContent.trim()) { Alert.alert('Notice', 'Please write something for your story.'); return; }
     try {
       if (isMountedRef.current) setIsCreating(true);
       await onCreateStoryPress(storyContent.trim(), selectedBackground.colors);
-      if (refreshStories) refreshStories();
-
-      if (isMountedRef.current) {
-        setStoryContent('');
-        setSelectedBackground(BACKGROUND_PRESETS[0]);
-        setCreateModalVisible(false);
-      }
+      refreshStories?.();
+      if (isMountedRef.current) { setStoryContent(''); setSelectedBackground(BACKGROUND_PRESETS[0]); setCreateModalVisible(false); }
     } catch (error) {
       Alert.alert('Error', 'Failed to share status. Please try again.');
     } finally {
@@ -240,12 +173,9 @@ export const StorySection = ({
 
   const handleDeleteStatus = async (id) => {
     try {
-      if (isMountedRef.current) {
-        setIsDeleting(true);
-        setIsPaused(true);
-      }
+      if (isMountedRef.current) { setIsDeleting(true); setIsPaused(true); }
       await onDeleteStory(id);
-      if (refreshStories) refreshStories();
+      refreshStories?.();
       if (isMountedRef.current) setViewerModalVisible(false);
     } catch (error) {
       Alert.alert('Error', 'Failed to delete status. Please try again.');
@@ -259,273 +189,142 @@ export const StorySection = ({
   const viewersList = activePost.viewers || [];
 
   return (
-    <View style={styles.section}>
-      <View style={styles.row}>
-        <AppText type="bold" style={styles.sectionTitle}>Active Stories</AppText>
-      </View>
+    <View style={s.section}>
+      <View style={s.row}><AppText type="bold" style={s.sectionTitle}>Active Stories</AppText></View>
 
       <FlatList
         horizontal
         data={sortedOtherGroups}
         keyExtractor={(item) => item?.user_id?.toString() || Math.random().toString()}
-        contentContainerStyle={styles.flatListContent}
+        contentContainerStyle={s.flatListContent}
         showsHorizontalScrollIndicator={false}
         ListHeaderComponent={
-          <View style={styles.storyWrapper}>
-            <TouchableOpacity 
-              accessibilityRole="button"
-              accessibilityLabel="View or create status"
-              onPress={() => {
-                if (hasMyStory && myGroup) {
-                  openViewerForGroup(myGroup);
-                } else {
-                  setCreateModalVisible(true);
-                }
-              }}
-            >
-            {hasMyStory && myGroup?.posts && myGroup.posts.length > 0 ? (() => {
-            const latestMyPost = myGroup.posts[myGroup.posts.length - 1];
-            return (
-              <LinearGradient colors={[RED, '#9F1239']} style={styles.gradientBorder}>
-                <View style={styles.storyCircleInner}>
-                  {latestMyPost.background ? (
-                    <LinearGradient colors={latestMyPost.background} style={styles.innerGradient}>
-                      <AppText numberOfLines={2} style={[styles.storyPreviewText, { color: '#FFF' }]}>
-                        {latestMyPost.content}
-                      </AppText>
-                    </LinearGradient>
-                  ) : (
-                    <AppText numberOfLines={2} style={styles.storyPreviewText}>
-                      {latestMyPost.content}
-                    </AppText>
-                  )}
-                </View>
-              </LinearGradient>
-            );
-          })() : (
-            <View style={styles.myStatusContainer}>
-              <View style={styles.storyCircleInnerBlank}>
-                <Plus color={RED} size={24} />
-              </View>
-            </View>
-          )}
+          <View style={s.storyWrapper}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="View or create status" onPress={() => { if (hasMyStory && myGroup) openViewerForGroup(myGroup); else setCreateModalVisible(true); }}>
+              {hasMyStory && myGroup?.posts && myGroup.posts.length > 0 ? (() => {
+                const latestMyPost = myGroup.posts[myGroup.posts.length - 1];
+                return (
+                  <LinearGradient colors={[RED, '#9F1239']} style={s.gradientBorder}>
+                    <View style={s.storyCircleInner}>
+                      {latestMyPost.background ? (
+                        <LinearGradient colors={latestMyPost.background} style={s.innerGradient}><AppText numberOfLines={2} style={[s.storyPreviewText, { color: '#FFF' }]}>{latestMyPost.content}</AppText></LinearGradient>
+                      ) : (
+                        <AppText numberOfLines={2} style={s.storyPreviewText}>{latestMyPost.content}</AppText>
+                      )}
+                    </View>
+                  </LinearGradient>
+                );
+              })() : (
+                <View style={s.myStatusContainer}><View style={s.storyCircleInnerBlank}><Plus color={RED} size={24} /></View></View>
+              )}
             </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.floatingPlusBadge} 
-              accessibilityRole="button"
-              accessibilityLabel="Create new status"
-              onPress={() => setCreateModalVisible(true)}
-            >
-              <Plus color="#FFFFFF" size={12} />
-            </TouchableOpacity>
-
-            <AppText style={styles.storyName}>My Status</AppText>
+            <TouchableOpacity style={s.floatingPlusBadge} accessibilityRole="button" accessibilityLabel="Create new status" onPress={() => setCreateModalVisible(true)}><Plus color="#FFFFFF" size={12} /></TouchableOpacity>
+            <AppText style={s.storyName}>My Status</AppText>
           </View>
         }
-        renderItem={({ item }) => (
-          <MemoizedStoryItem 
-            item={item} 
-            viewedIds={viewedIds} 
-            onPress={openViewerForGroup} 
-          />
-        )}
+        renderItem={({ item }) => <MemoizedStoryItem item={item} viewedIds={viewedIds} onPress={openViewerForGroup} colors={colors} />}
       />
 
-      {/* Creator Modal */}
       <Modal visible={createModalVisible} animationType="slide" transparent={false} onRequestClose={() => setCreateModalVisible(false)}>
-        <LinearGradient 
-          colors={selectedBackground.colors} 
-          style={[styles.composerContainer, { paddingTop: Math.max(insets.top, 25), paddingBottom: Math.max(insets.bottom, 25) }]}
-        >
+        <LinearGradient colors={selectedBackground.colors} style={[s.composerContainer, { paddingTop: Math.max(insets.top, 25), paddingBottom: Math.max(insets.bottom, 25) }]}>
           <StatusBar barStyle="light-content" />
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoidingFlex}>
-            <View style={styles.composerHeader}>
-              <TouchableOpacity onPress={() => setCreateModalVisible(false)} style={styles.composerCloseBtn} disabled={isCreating}>
-                <X color="#FFF" size={24} />
-              </TouchableOpacity>
-              <AppText type="bold" style={styles.composerHeaderTitle}>Create Status</AppText>
-              <TouchableOpacity onPress={handleCreateStatus} style={[styles.composerSendBtn, isCreating && styles.disabledSendBtn]} disabled={isCreating}>
-                {isCreating ? <ActivityIndicator color="#FFF" size="small" /> : <Send color="#FFF" size={20} />}
-              </TouchableOpacity>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.keyboardAvoidingFlex}>
+            <View style={s.composerHeader}>
+              <TouchableOpacity onPress={() => setCreateModalVisible(false)} style={s.composerCloseBtn} disabled={isCreating}><X color="#FFF" size={24} /></TouchableOpacity>
+              <AppText type="bold" style={s.composerHeaderTitle}>Create Status</AppText>
+              <TouchableOpacity onPress={handleCreateStatus} style={[s.composerSendBtn, isCreating && s.disabledSendBtn]} disabled={isCreating}>{isCreating ? <ActivityIndicator color="#FFF" size="small" /> : <Send color="#FFF" size={20} />}</TouchableOpacity>
             </View>
-
-            <View style={styles.composerBody}>
-              <TextInput 
-                placeholder="Share how the Machaira blessed you today..." 
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={storyContent} 
-                onChangeText={setStoryContent}
-                multiline
-                autoFocus={true}
-                editable={!isCreating}
-                style={styles.composerInput}
-              />
+            <View style={s.composerBody}>
+              <TextInput placeholder="Share how the Machaira blessed you today..." placeholderTextColor="rgba(255,255,255,0.4)" value={storyContent} onChangeText={setStoryContent} multiline autoFocus editable={!isCreating} style={s.composerInput} />
             </View>
-
-            <View style={styles.paletteContainer}>
-              <View style={styles.paletteHeader}>
-                <Palette color="rgba(255,255,255,0.7)" size={16} />
-                <AppText style={styles.paletteTitle}>Choose Background</AppText>
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.paletteScroll}>
+            <View style={s.paletteContainer}>
+              <View style={s.paletteHeader}><Palette color="rgba(255,255,255,0.7)" size={16} /><AppText style={s.paletteTitle}>Choose Background</AppText></View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.paletteScroll}>
                 {BACKGROUND_PRESETS.map((preset) => (
-                  <TouchableOpacity 
-                    key={preset.id}
-                    onPress={() => setSelectedBackground(preset)}
-                    style={[styles.paletteSwatchWrapper, selectedBackground.id === preset.id && styles.paletteSwatchSelected]}
-                  >
-                    <LinearGradient colors={preset.colors} style={styles.paletteSwatch} />
-                  </TouchableOpacity>
+                  <TouchableOpacity key={preset.id} onPress={() => setSelectedBackground(preset)} style={[s.paletteSwatchWrapper, selectedBackground.id === preset.id && s.paletteSwatchSelected]}><LinearGradient colors={preset.colors} style={s.paletteSwatch} /></TouchableOpacity>
                 ))}
               </ScrollView>
             </View>
-
-            <View style={styles.composerFooter}>
-              <AppText style={styles.composerFooterText}>Disappears automatically after 24 hours</AppText>
-            </View>
+            <View style={s.composerFooter}><AppText style={s.composerFooterText}>Disappears automatically after 24 hours</AppText></View>
           </KeyboardAvoidingView>
         </LinearGradient>
       </Modal>
 
-      {/* Main Single Viewer Modal */}
       <Modal visible={viewerModalVisible} animationType="fade" transparent={false} onRequestClose={() => setViewerModalVisible(false)}>
-        <LinearGradient colors={currentBackgroundColors} style={[styles.viewerContainer, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
-          <View style={styles.progressBarRow}>
+        <LinearGradient colors={currentBackgroundColors} style={[s.viewerContainer, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <View style={s.progressBarRow}>
             {activePosts.map((_, idx) => (
-              <View key={idx} style={styles.progressBarBackground}>
-                <View 
-                  style={[
-                    styles.progressBarFill, 
-                    { width: idx < currentPostIndex ? '100%' : idx === currentPostIndex ? `${progress * 100}%` : '0%' }
-                  ]} 
-                />
-              </View>
+              <View key={idx} style={s.progressBarBackground}><View style={[s.progressBarFill, { width: idx < currentPostIndex ? '100%' : idx === currentPostIndex ? `${progress * 100}%` : '0%' }]} /></View>
             ))}
           </View>
 
-          <View style={styles.viewerHeader}>
-            <View style={styles.viewerAuthorRow}>
-              {authorProfilePic ? (
-                <Image source={{ uri: authorProfilePic }} style={styles.viewerAvatar} />
-              ) : (
-                <View style={styles.viewerAvatarPlaceholder}>
-                  <AppText style={styles.viewerAvatarPlaceholderText}>
-                    {(isMyActiveStory ? 'M' : (activeUserGroup.user_name || 'M')).charAt(0).toUpperCase()}
-                  </AppText>
-                </View>
+          <View style={s.viewerHeader}>
+            <View style={s.viewerAuthorRow}>
+              {authorProfilePic ? <Image source={{ uri: authorProfilePic }} style={s.viewerAvatar} /> : (
+                <View style={s.viewerAvatarPlaceholder}><AppText style={s.viewerAvatarPlaceholderText}>{(isMyActiveStory ? 'M' : (activeUserGroup.user_name || 'M')).charAt(0).toUpperCase()}</AppText></View>
               )}
               <View>
-                <AppText type="bold" style={styles.viewerAuthor}>
-                  {isMyActiveStory ? 'My Status' : (activeUserGroup.user_name || 'Member')}
-                </AppText>
-                <AppText style={styles.viewerTimestamp}>{formatTimeAgo(activePost.created_at)}</AppText>
+                <AppText type="bold" style={s.viewerAuthor}>{isMyActiveStory ? 'My Status' : (activeUserGroup.user_name || 'Member')}</AppText>
+                <AppText style={s.viewerTimestamp}>{formatTimeAgo(activePost.created_at)}</AppText>
               </View>
             </View>
-
-            <View style={styles.viewerHeaderActions}>
+            <View style={s.viewerHeaderActions}>
               {isMyActiveStory && activePost.id && (
-                <TouchableOpacity style={styles.viewerDeleteBtn} disabled={isDeleting} onPress={() => handleDeleteStatus(activePost.id)}>
-                  {isDeleting ? <ActivityIndicator color="#FFF" size="small" /> : <Trash2 color="#FFFFFF" size={20} />}
-                </TouchableOpacity>
+                <TouchableOpacity style={s.viewerDeleteBtn} disabled={isDeleting} onPress={() => handleDeleteStatus(activePost.id)} accessibilityRole="button" accessibilityLabel="Delete status">{isDeleting ? <ActivityIndicator color="#FFF" size="small" /> : <Trash2 color="#FFFFFF" size={20} />}</TouchableOpacity>
               )}
-              <TouchableOpacity onPress={() => { setViewerModalVisible(false); setProgress(0); setIsPaused(false); setViewersListModalVisible(false); }}>
-                <AppText style={styles.viewerClose}>✕</AppText>
-              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setViewerModalVisible(false); setProgress(0); setIsPaused(false); setViewersListModalVisible(false); }} accessibilityRole="button" accessibilityLabel="Close story viewer"><AppText style={s.viewerClose}>✕</AppText></TouchableOpacity>
             </View>
           </View>
 
-          <View style={styles.viewerContentContainer}>
-            <Pressable 
-              style={styles.touchZoneLeft} 
-              disabled={isDeleting || viewersListModalVisible}
-              onPressIn={() => { pressStartTimeRef.current = Date.now(); setIsPaused(true); }}
-              onPressOut={() => {
-                setIsPaused(false);
-                if (Date.now() - pressStartTimeRef.current < 200) handlePrevStory();
-              }}
-            />
-            
-            <View style={styles.statusTextWrapper} pointerEvents="none">
-              <AppText style={styles.viewerText}>{activePost.content}</AppText>
-            </View>
-
-            <Pressable 
-              style={styles.touchZoneRight} 
-              disabled={isDeleting || viewersListModalVisible}
-              onPressIn={() => { pressStartTimeRef.current = Date.now(); setIsPaused(true); }}
-              onPressOut={() => {
-                setIsPaused(false);
-                if (Date.now() - pressStartTimeRef.current < 200) handleNextStory();
-              }}
-            />
+          <View style={s.viewerContentContainer}>
+            {hasActivePost ? (
+              <>
+                <Pressable style={s.touchZoneLeft} disabled={isDeleting || viewersListModalVisible} accessibilityRole="button" accessibilityLabel="Previous story" onPressIn={() => { pressStartTimeRef.current = Date.now(); setIsPaused(true); }} onPressOut={() => { setIsPaused(false); if (Date.now() - pressStartTimeRef.current < 200) handlePrevStory(); }} />
+                <View style={s.statusTextWrapper} pointerEvents="none"><AppText style={s.viewerText}>{activePost.content}</AppText></View>
+                <Pressable style={s.touchZoneRight} disabled={isDeleting || viewersListModalVisible} accessibilityRole="button" accessibilityLabel="Next story" onPressIn={() => { pressStartTimeRef.current = Date.now(); setIsPaused(true); }} onPressOut={() => { setIsPaused(false); if (Date.now() - pressStartTimeRef.current < 200) handleNextStory(); }} />
+              </>
+            ) : (
+              <View style={s.statusTextWrapper}><AppText style={s.viewerText}>This story is no longer available.</AppText></View>
+            )}
           </View>
 
-          {/* Viewer Analytics Footer Bar */}
-          {isMyActiveStory && (
-            <TouchableOpacity 
-              style={styles.analyticsFooterBar}
-              onPress={() => { setIsPaused(true); setViewersListModalVisible(true); }}
-            >
-              <Eye color="#FFFFFF" size={18} />
-              <AppText style={styles.analyticsText}>{viewersList.length} {viewersList.length === 1 ? 'view' : 'views'}</AppText>
-            </TouchableOpacity>
+          {isMyActiveStory && hasActivePost && (
+            <TouchableOpacity style={s.analyticsFooterBar} onPress={() => { setIsPaused(true); setViewersListModalVisible(true); }}><Eye color="#FFFFFF" size={18} /><AppText style={s.analyticsText}>{viewersList.length} {viewersList.length === 1 ? 'view' : 'views'}</AppText></TouchableOpacity>
           )}
 
-          {/* MODERNIZED ANALYTICS OVERLAY BOTTOM SHEET */}
           {viewersListModalVisible && (
-            <View style={styles.analyticsModalOverlay}>
-              <Pressable 
-                style={StyleSheet.absoluteFill} 
-                onPress={() => { setViewersListModalVisible(false); setIsPaused(false); }} 
-              />
-              <View style={[styles.analyticsModalContent, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-                <View style={styles.sheetIndicatorBar} />
-
-                <View style={styles.analyticsModalHeader}>
-                  <View style={styles.analyticsTitleRow}>
-                    <Eye color="#E11D48" size={18} />
-                    <AppText type="bold" style={styles.analyticsModalTitle}>Viewer Activity</AppText>
-                    <View style={styles.viewerCountBadge}>
-                      <AppText style={styles.viewerCountBadgeText}>{viewersList.length}</AppText>
-                    </View>
+            <View style={s.analyticsModalOverlay}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => { setViewersListModalVisible(false); setIsPaused(false); }} />
+              <View style={[s.analyticsModalContent, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+                <View style={s.sheetIndicatorBar} />
+                <View style={s.analyticsModalHeader}>
+                  <View style={s.analyticsTitleRow}>
+                    <Eye color={RED} size={18} />
+                    <AppText type="bold" style={s.analyticsModalTitle}>Viewer Activity</AppText>
+                    <View style={s.viewerCountBadge}><AppText style={s.viewerCountBadgeText}>{viewersList.length}</AppText></View>
                   </View>
-                  <TouchableOpacity 
-                    style={styles.sheetCloseBtn}
-                    onPress={() => { setViewersListModalVisible(false); setIsPaused(false); }}
-                  >
-                    <X color="#94A3B8" size={18} />
-                  </TouchableOpacity>
+                  <TouchableOpacity style={s.sheetCloseBtn} onPress={() => { setViewersListModalVisible(false); setIsPaused(false); }} accessibilityRole="button" accessibilityLabel="Close viewer list"><X color={colors.tabBarInactive} size={18} /></TouchableOpacity>
                 </View>
-
-                <FlatList 
+                <FlatList
                   data={viewersList}
                   keyExtractor={(item, index) => item?.id?.toString() || index.toString()}
-                  contentContainerStyle={styles.viewersListScroll}
+                  contentContainerStyle={s.viewersListScroll}
                   showsVerticalScrollIndicator={false}
                   ListEmptyComponent={
-                    <View style={styles.emptyViewersContainer}>
-                      <View style={styles.emptyIconCircle}>
-                        <Eye color="#64748B" size={24} />
-                      </View>
-                      <AppText style={styles.emptyViewersTitle}>No views yet</AppText>
-                      <AppText style={styles.emptyViewersSubtitle}>Check back later to see who has viewed your status.</AppText>
+                    <View style={s.emptyViewersContainer}>
+                      <View style={s.emptyIconCircle}><Eye color={colors.textSecondary} size={24} /></View>
+                      <AppText style={s.emptyViewersTitle}>No views yet</AppText>
+                      <AppText style={s.emptyViewersSubtitle}>Check back later to see who has viewed your status.</AppText>
                     </View>
                   }
                   renderItem={({ item }) => (
-                    <View style={styles.viewerRow}>
-                      {item.avatar ? (
-                        <Image source={{ uri: item.avatar }} style={styles.viewerRowAvatar} />
-                      ) : (
-                        <View style={styles.viewerRowAvatarPlaceholder}>
-                          <AppText style={styles.viewerRowAvatarPlaceholderText}>
-                            {(item.name || 'M').charAt(0).toUpperCase()}
-                          </AppText>
-                        </View>
+                    <View style={s.viewerRow}>
+                      {item.avatar ? <Image source={{ uri: item.avatar }} style={s.viewerRowAvatar} /> : (
+                        <View style={s.viewerRowAvatarPlaceholder}><AppText style={s.viewerRowAvatarPlaceholderText}>{(item.name || 'M').charAt(0).toUpperCase()}</AppText></View>
                       )}
-                      <View style={styles.viewerRowInfo}>
-                        <AppText type="bold" style={styles.viewerRowName}>{item.name || 'Member'}</AppText>
-                        <AppText style={styles.viewerRowTime}>Viewed {formatTimeAgo(item.viewed_at)}</AppText>
+                      <View style={s.viewerRowInfo}>
+                        <AppText type="bold" style={s.viewerRowName}>{item.name || 'Member'}</AppText>
+                        <AppText style={s.viewerRowTime}>Viewed {formatTimeAgo(item.viewed_at)}</AppText>
                       </View>
                     </View>
                   )}
@@ -539,21 +338,20 @@ export const StorySection = ({
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (colors) => StyleSheet.create({
   section: { marginBottom: 40 },
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, marginBottom: 15 },
-  sectionTitle: { fontSize: 20, color: DEEP_PURPLE, letterSpacing: 0.5, marginBottom: 15 },
+  sectionTitle: { fontSize: 20, color: colors.text, letterSpacing: 0.5, marginBottom: 15 },
   flatListContent: { paddingLeft: 20, paddingRight: 20 },
   storyWrapper: { alignItems: 'center', marginHorizontal: 10, position: 'relative', width: 80 },
   gradientBorder: { width: 80, height: 80, borderRadius: 40, padding: 3 },
-  myStatusContainer: { width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: '#CBD5E1', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
-  storyCircleInner: { flex: 1, borderRadius: 37, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  storyCircleInnerBlank: { flex: 1, borderRadius: 37, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' },
+  myStatusContainer: { width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+  storyCircleInner: { flex: 1, borderRadius: 37, backgroundColor: colors.card, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  storyCircleInnerBlank: { flex: 1, borderRadius: 37, backgroundColor: colors.card, justifyContent: 'center', alignItems: 'center' },
   innerGradient: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', borderRadius: 37, padding: 6 },
-  storyPreviewText: { fontSize: 9, color: DEEP_PURPLE, textAlign: 'center', paddingHorizontal: 4 },
-  storyName: { marginTop: 10, color: DEEP_PURPLE, fontSize: 11, fontWeight: '600', textAlign: 'center', width: 80 },
-  floatingPlusBadge: { position: 'absolute', right: 0, top: 55, width: 22, height: 22, borderRadius: 11, backgroundColor: RED, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFFFFF', zIndex: 5 },
-
+  storyPreviewText: { fontSize: 9, color: colors.text, textAlign: 'center', paddingHorizontal: 4 },
+  storyName: { marginTop: 10, color: colors.text, fontSize: 11, fontWeight: '600', textAlign: 'center', width: 80 },
+  floatingPlusBadge: { position: 'absolute', right: 0, top: 55, width: 22, height: 22, borderRadius: 11, backgroundColor: RED, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: colors.background, zIndex: 5 },
   composerContainer: { flex: 1, paddingHorizontal: 25 },
   keyboardAvoidingFlex: { flex: 1, justifyContent: 'space-between' },
   composerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
@@ -565,7 +363,6 @@ const styles = StyleSheet.create({
   composerInput: { width: '100%', fontSize: 24, textAlign: 'center', lineHeight: 36, fontWeight: '500', textAlignVertical: 'center', minHeight: 150, color: '#FFFFFF' },
   composerFooter: { alignItems: 'center', marginTop: 10 },
   composerFooterText: { color: 'rgba(255,255,255,0.5)', fontSize: 12 },
-
   paletteContainer: { marginBottom: 15 },
   paletteHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, paddingHorizontal: 5 },
   paletteTitle: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginLeft: 6, fontWeight: '600' },
@@ -573,7 +370,6 @@ const styles = StyleSheet.create({
   paletteSwatchWrapper: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: 'transparent', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
   paletteSwatchSelected: { borderColor: '#FFFFFF' },
   paletteSwatch: { width: 28, height: 28, borderRadius: 14 },
-
   viewerContainer: { flex: 1, paddingBottom: 10 },
   progressBarRow: { flexDirection: 'row', paddingHorizontal: 15, marginBottom: 15, height: 3 },
   progressBarBackground: { flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 2, borderRadius: 2, overflow: 'hidden' },
@@ -593,11 +389,8 @@ const styles = StyleSheet.create({
   touchZoneRight: { position: 'absolute', right: 0, top: 0, bottom: 0, width: '50%', zIndex: 10 },
   statusTextWrapper: { padding: 30, justifyContent: 'center', alignItems: 'center', width: '100%', zIndex: 5 },
   viewerText: { color: '#FFFFFF', fontSize: 24, textAlign: 'center', lineHeight: 36, fontWeight: '500' },
-
   analyticsFooterBar: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 12, backgroundColor: 'rgba(0,0,0,0.25)', zIndex: 20, borderRadius: 20, marginHorizontal: 24, marginBottom: 5 },
   analyticsText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginLeft: 8 },
-
-  // Sleek Dark Bottom Sheet Styles
   analyticsModalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 50 },
   analyticsModalContent: { backgroundColor: '#1A1528', borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '65%', paddingHorizontal: 20, paddingTop: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   sheetIndicatorBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)', alignSelf: 'center', marginBottom: 14 },
@@ -607,13 +400,11 @@ const styles = StyleSheet.create({
   viewerCountBadge: { backgroundColor: 'rgba(225, 29, 72, 0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginLeft: 8 },
   viewerCountBadgeText: { color: RED, fontSize: 12, fontWeight: '700' },
   sheetCloseBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.06)', justifyContent: 'center', alignItems: 'center' },
-  
   viewersListScroll: { paddingVertical: 4 },
   emptyViewersContainer: { paddingVertical: 50, alignItems: 'center', justifyContent: 'center' },
   emptyIconCircle: { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   emptyViewersTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginBottom: 4 },
   emptyViewersSubtitle: { color: '#94A3B8', fontSize: 13, textAlign: 'center', paddingHorizontal: 20 },
-  
   viewerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)' },
   viewerRowAvatar: { width: 42, height: 42, borderRadius: 21, marginRight: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
   viewerRowAvatarPlaceholder: { width: 42, height: 42, borderRadius: 21, backgroundColor: RED, justifyContent: 'center', alignItems: 'center', marginRight: 12 },

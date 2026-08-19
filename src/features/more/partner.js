@@ -37,12 +37,12 @@ export const PartnerScreen = ({ navigation }) => {
       <View style={styles.heroSection}>
         <View style={[styles.iconOuterRing, { 
           backgroundColor: colors.card, 
-          borderColor: WHITE,
-          shadowColor: WHITE 
+          borderColor: RED_ACCENT,
+          shadowColor: RED_ACCENT 
         }]}>
-          <Handshake color={WHITE} size={48} strokeWidth={1.5} />
+          <Handshake color={RED_ACCENT} size={48} strokeWidth={1.5} />
         </View>
-        <AppText type="bold" style={[styles.mainTitle, { color: WHITE }]}>
+        <AppText type="bold" style={[styles.mainTitle, { color: RED_ACCENT }]}>
           Partner with us
         </AppText>
       </View>
@@ -53,10 +53,10 @@ export const PartnerScreen = ({ navigation }) => {
       >
         <View style={[styles.devotionalBox, { 
           backgroundColor: colors.card, 
-          borderColor: WHITE,
-          shadowColor: WHITE 
+          borderColor: RED_ACCENT,
+          shadowColor: RED_ACCENT 
         }]}>
-          <AppText type="bold" style={[styles.devotionalTitle, { color: WHITE }]}>
+          <AppText type="bold" style={[styles.devotionalTitle, { color: RED_ACCENT }]}>
             The Kingdom Advances Through our Faithfulness
           </AppText>
           <AppText style={[styles.devotionalText, { color: colors.text }]}>
@@ -64,7 +64,7 @@ export const PartnerScreen = ({ navigation }) => {
             As the Apostle Paul wrote to the Philippians, you become partakers of the grace given to this house. 
             When you support the proclamation of the uncompromised Word, you share in the spiritual reward of every life transformed, every yoke broken, and every soul anchored in Truth.
           </AppText>
-          <Sparkles color={WHITE} size={24} style={styles.devotionalIcon} />
+          <Sparkles color={RED_ACCENT} size={24} style={styles.devotionalIcon} />
         </View>
 
         <View style={styles.ctaSection}>

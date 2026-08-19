@@ -1,271 +1,184 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView, Animated, useColorScheme } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, StyleSheet, ActivityIndicator, Pressable, ScrollView, Animated } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CheckCircle2, XCircle, Sparkles, Trophy, RotateCcw, ArrowRight } from 'lucide-react-native';
+import { CheckCircle2, XCircle, Flame, Trophy, RotateCcw, ArrowRight, AlertTriangle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { Audio } from 'expo-av';
+import { Audio } from 'expo-audio';
 import { supabase } from '../../config/supabaseClient';
+import { useTheme } from '../../context/ThemeContext';
+
+const RUBRIC = '#C81E3A';
+const safeHaptic = (fn) => { try { fn(); } catch (_e) {} };
 
 export const ThreadsofMachaira = ({ navigation, route }) => {
-  const colorScheme = useColorScheme();
-  const isDarkMode = colorScheme === 'dark';
-
+  const { colors, isDark } = useTheme();
   const { stageId, stage_id, id, stageNumber } = route?.params || {};
   const activeStageId = stageId || stage_id || id;
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const [attemptId, setAttemptId] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-
   const [selectedOption, setSelectedOption] = useState(null);
   const [isAnswered, setIsAnswered] = useState(false);
-  const [score, setScore] = useState(0);
-  const [speedBonusTotal, setSpeedBonusTotal] = useState(0);
+  const [lastCorrect, setLastCorrect] = useState(null);
+  const [streak, setStreak] = useState(0);
+  const [runningScore, setRunningScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
+  const [finalScore, setFinalScore] = useState(null);
+  const [saveError, setSaveError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const startTimeRef = useRef(Date.now());
-  const gameStartRef = useRef(Date.now());
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const cardScale = useRef(new Animated.Value(1)).current;
+  const trophyBounce = useRef(new Animated.Value(0)).current;
+  const soundRef = useRef(null);
+  const mountedRef = useRef(true);
 
-  // Background music effect
   useEffect(() => {
-    let backgroundSound;
-
+    mountedRef.current = true;
+    let cancelled = false;
     const playBackgroundMusic = async () => {
       try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-          shouldDuckAndroid: true,
-        });
-
-        const { sound: playbackObject } = await Audio.Sound.createAsync(
-          require('../../../assets/audio/gameS1.mp3'),
-          { 
-            isLooping: true, 
-            volume: 0.1      
-          }
-        );
-
-        backgroundSound = playbackObject;
-        await playbackObject.playAsync();
-      } catch (error) {
-        console.error('Error loading background music:', error);
-      }
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false, shouldDuckAndroid: true });
+        const { sound } = await Audio.Sound.createAsync(require('../../../assets/audio/gameS1.mp3'), { isLooping: true, volume: 0.1 });
+        if (cancelled) { sound.unloadAsync().catch(() => {}); return; }
+        soundRef.current = sound;
+        await sound.playAsync();
+      } catch (error) { console.error('Error loading background music:', error); }
     };
-
     playBackgroundMusic();
-
     return () => {
-      if (backgroundSound) {
-        backgroundSound.unloadAsync().catch(() => {});
-      }
+      mountedRef.current = false;
+      cancelled = true;
+      if (soundRef.current) { soundRef.current.unloadAsync().catch(() => {}); soundRef.current = null; }
     };
   }, []);
 
-  const shuffleArray = (array) => {
-    const arr = [...array];
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+  const startAttempt = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      if (!activeStageId) throw new Error('No stage specified — check that stageId/stage_id/id is being passed in navigation params');
+      console.log('[Threads] starting attempt for stage', activeStageId);
+      const { data, error } = await supabase.rpc('start_threads_attempt', { p_stage_id: activeStageId });
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error('RPC returned no rows for this stage');
+      console.log('[Threads] RPC returned', data.length, 'rows, first question:', JSON.stringify(data[0]).slice(0, 200));
+      const emptyQuestionCount = data.filter((row) => !row.question).length;
+      if (emptyQuestionCount > 0) {
+        console.warn(`[Threads] ${emptyQuestionCount}/${data.length} rows came back with an empty question — check the "question" or "quote" key in threads_stages.questions for stage ${activeStageId}`);
+      }
+      if (!mountedRef.current) return;
+      setAttemptId(data[0].attempt_id);
+      setQuestions(data.map((row) => ({ questionIndex: row.question_index, question: row.question, options: row.options || [] })));
+      setCurrentIndex(0);
+      setRunningScore(0);
+      setStreak(0);
+      setIsFinished(false);
+      setFinalScore(null);
+      setSaveError(false);
+    } catch (err) {
+      console.error('Error starting threads attempt:', err.message);
+      if (mountedRef.current) setLoadError(err.message || 'Something went wrong loading this stage.');
+    } finally {
+      if (mountedRef.current) setLoading(false);
     }
-    return arr;
-  };
+  }, [activeStageId]);
+
+  useEffect(() => { startAttempt(); }, [startAttempt]);
 
   useEffect(() => {
-    fetchStageQuestions();
-  }, [activeStageId, stageNumber]);
-
-  useEffect(() => {
-    if (!isFinished) {
+    if (!isFinished && questions.length > 0) {
       setSelectedOption(null);
       setIsAnswered(false);
-      startTimeRef.current = Date.now();
-      
-      slideAnim.setValue(30);
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        tension: 50,
-        friction: 7,
-        useNativeDriver: true,
-      }).start();
+      setLastCorrect(null);
+      slideAnim.setValue(40);
+      cardScale.setValue(0.94);
+      Animated.parallel([
+        Animated.spring(slideAnim, { toValue: 0, tension: 60, friction: 8, useNativeDriver: true }),
+        Animated.spring(cardScale, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
+      ]).start();
     }
   }, [currentIndex, questions, isFinished]);
 
-  const fetchStageQuestions = async () => {
+  useEffect(() => {
+    if (isFinished) {
+      trophyBounce.setValue(0);
+      Animated.spring(trophyBounce, { toValue: 1, tension: 80, friction: 5, useNativeDriver: true }).start();
+    }
+  }, [isFinished]);
+
+  const finishAttempt = useCallback(async () => {
     try {
-      setLoading(true);
-
-      let query = supabase.from('threads_stages').select('questions');
-      
-      if (activeStageId) {
-        query = query.eq('id', activeStageId);
-      } else if (stageNumber) {
-        query = query.eq('stage_number', stageNumber);
-      }
-
-      const { data, error } = await query;
-
+      const { data, error } = await supabase.rpc('finish_threads_attempt', { p_attempt_id: attemptId });
       if (error) throw error;
-      
-      const stageRecord = Array.isArray(data) ? data[0] : data;
-
-      let fetchedQuestions = [];
-      if (stageRecord?.questions) {
-        if (Array.isArray(stageRecord.questions)) {
-          fetchedQuestions = stageRecord.questions;
-        } else if (typeof stageRecord.questions === 'string') {
-          try {
-            fetchedQuestions = JSON.parse(stageRecord.questions);
-          } catch (e) {
-            fetchedQuestions = [];
-          }
-        }
-      }
-
-      const randomizedQuestions = shuffleArray(fetchedQuestions).map(q => {
-        let parsedOpts = [];
-        try {
-          parsedOpts = Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]');
-        } catch (e) {
-          parsedOpts = [];
-        }
-        
-        const rawTexts = parsedOpts.map(opt => opt.replace(/^[A-D]\)\s*/, ''));
-        const shuffledTexts = shuffleArray(rawTexts);
-        
-        const prefixes = ['A) ', 'B) ', 'C) ', 'D) '];
-        const formattedOpts = shuffledTexts.map((text, idx) => `${prefixes[idx]}${text}`);
-
-        return {
-          ...q,
-          options: formattedOpts
-        };
-      });
-
-      setQuestions(randomizedQuestions);
-      gameStartRef.current = Date.now();
+      setFinalScore(data?.[0]?.final_score ?? runningScore);
+      setSaveError(false);
     } catch (err) {
-      console.error('Error fetching stage questions blob:', err.message);
-      setQuestions([]);
-    } finally {
-      setLoading(false);
+      console.error('Failed to finalize attempt:', err.message);
+      setFinalScore(runningScore);
+      setSaveError(true);
     }
-  };
+  }, [attemptId, runningScore]);
 
-  const saveGameSession = async (finalScore) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.warn('No authenticated user found when attempting to save game session.');
-        return;
-      }
-
-      const timeTakenSeconds = Number(((Date.now() - gameStartRef.current) / 1000).toFixed(2));
-      const parsedLevelNumber = Number(stageNumber) || 1;
-      const parsedStageId = activeStageId ? String(activeStageId) : null;
-
-      const { error } = await supabase.from('game_sessions').upsert([
-        {
-          user_id: user.id,
-          game_type: 'threads',
-          level_number: parsedLevelNumber,
-          score: finalScore,
-          time_taken_seconds: timeTakenSeconds,
-          is_completed: true,
-          stage_id: parsedStageId,
-          updated_at: new Date().toISOString()
-        }
-      ], {
-        onConflict: 'user_id,game_type,stage_id'
-      });
-
-      if (error) {
-        console.error('Failed to record game session score:', error.message);
-      }
-    } catch (err) {
-      console.error('Error recording session:', err);
-    }
-  };
-
-  const handleSelect = (option) => {
-    if (isAnswered) return;
-    
-    setIsAnswered(true);
-    setSelectedOption(option);
+  const handleSelect = async (option) => {
+    if (isAnswered || submitting) return;
     const currentQ = questions[currentIndex];
+    setSubmitting(true);
+    setSelectedOption(option);
+    try {
+      const { data, error } = await supabase.rpc('submit_threads_answer', {
+        p_attempt_id: attemptId, p_question_index: currentQ.questionIndex, p_selected_option: option, p_client_elapsed_ms: null,
+      });
+      if (error) throw error;
+      const result = data?.[0];
+      const correct = !!result?.is_correct;
+      setIsAnswered(true);
+      setLastCorrect(correct);
+      setStreak((prev) => (correct ? prev + 1 : 0));
+      setRunningScore(result?.running_score ?? runningScore);
+      safeHaptic(() => Haptics.notificationAsync(correct ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error));
 
-    const cleanSelected = option.replace(/^[A-D]\)\s*/, '').trim().toLowerCase();
-    const targetAnswer = currentQ?.answer || currentQ?.author || '';
-    const cleanTarget = targetAnswer.replace(/^[A-D]\)\s*/, '').trim().toLowerCase();
-    const isCorrect = cleanSelected === cleanTarget;
-
-    const timeElapsedMs = Date.now() - startTimeRef.current;
-    const speedBonus = Number(Math.max(0, 0.5 * (1 - timeElapsedMs / 10000)).toFixed(6));
-
-    let updatedScore = score;
-    let updatedBonus = speedBonusTotal;
-
-    if (isCorrect) {
-      updatedScore = score + 2;
-      updatedBonus = Number((speedBonusTotal + speedBonus).toFixed(6));
-      setScore(updatedScore);
-      setSpeedBonusTotal(updatedBonus);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setTimeout(async () => {
+        if (currentIndex < questions.length - 1) {
+          setCurrentIndex((prev) => prev + 1);
+        } else {
+          setIsFinished(true);
+          await finishAttempt();
+          safeHaptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+        }
+      }, 1100);
+    } catch (err) {
+      console.error('Error submitting answer:', err.message);
+      setIsAnswered(false);
+      setSelectedOption(null);
+    } finally {
+      setSubmitting(false);
     }
-
-    const totalFinalScore = Number((updatedScore + updatedBonus).toFixed(6));
-
-    setTimeout(() => {
-      if (currentIndex < questions.length - 1) {
-        setCurrentIndex(prev => prev + 1);
-      } else {
-        setIsFinished(true);
-        saveGameSession(totalFinalScore);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    }, 1200);
   };
 
-  const handleRestart = () => {
-    const randomizedQuestions = shuffleArray(questions).map(q => {
-      let parsedOpts = [];
-      try {
-        parsedOpts = Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]');
-      } catch (e) {
-        parsedOpts = [];
-      }
-      const rawTexts = parsedOpts.map(opt => opt.replace(/^[A-D]\)\s*/, ''));
-      const shuffledTexts = shuffleArray(rawTexts);
-      const prefixes = ['A) ', 'B) ', 'C) ', 'D) '];
-      const formattedOpts = shuffledTexts.map((text, idx) => `${prefixes[idx]}${text}`);
+  const handleRestart = () => startAttempt();
 
-      return {
-        ...q,
-        options: formattedOpts
-      };
-    });
-
-    setQuestions(randomizedQuestions);
-    setCurrentIndex(0);
-    setScore(0);
-    setSpeedBonusTotal(0);
-    setIsFinished(false);
-    setSelectedOption(null);
-    setIsAnswered(false);
-    gameStartRef.current = Date.now();
-  };
-
-  const dynamicStyles = getStyles(isDarkMode);
+  const s = getStyles(colors, isDark);
 
   if (loading) {
+    return (<SafeAreaView style={s.container}><View style={s.center}><ActivityIndicator size="large" color={RUBRIC} /></View></SafeAreaView>);
+  }
+
+  if (loadError) {
     return (
-      <SafeAreaView style={dynamicStyles.container}>
-        <View style={dynamicStyles.center}>
-          <ActivityIndicator size="large" color="#e11d48" />
+      <SafeAreaView style={s.container}>
+        <View style={s.center}>
+          <View style={s.emptyBadge}><AlertTriangle size={24} color={RUBRIC} /></View>
+          <AppText type="bold" style={s.emptyTitle}>SOMETHING WENT WRONG</AppText>
+          <AppText style={s.emptyText}>{loadError}</AppText>
+          <Pressable style={s.retryInlineBtn} onPress={startAttempt}>
+            <RotateCcw size={16} color={RUBRIC} style={{ marginRight: 8 }} />
+            <AppText type="bold" style={s.retryInlineText}>TRY AGAIN</AppText>
+          </Pressable>
         </View>
       </SafeAreaView>
     );
@@ -273,13 +186,11 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
 
   if (questions.length === 0) {
     return (
-      <SafeAreaView style={dynamicStyles.container}>
-        <View style={dynamicStyles.center}>
-          <View style={dynamicStyles.emptyBadge}>
-            <Sparkles size={24} color="#e11d48" />
-          </View>
-          <AppText type="bold" style={dynamicStyles.emptyTitle}>STAGE 0{stageNumber || 1}</AppText>
-          <AppText style={dynamicStyles.emptyText}>No questions dropped for this stage yet. Stay tuned.</AppText>
+      <SafeAreaView style={s.container}>
+        <View style={s.center}>
+          <View style={s.emptyBadge}><Flame size={24} color={RUBRIC} /></View>
+          <AppText type="bold" style={s.emptyTitle}>STAGE 0{stageNumber || 1}</AppText>
+          <AppText style={s.emptyText}>No questions dropped for this stage yet. Stay tuned.</AppText>
         </View>
       </SafeAreaView>
     );
@@ -287,41 +198,43 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
 
   if (isFinished) {
     const maxPossibleScore = questions.length * 2;
-    const integerBaseScore = Math.floor(score);
-    const displayBonus = speedBonusTotal.toFixed(3);
+    const displayScore = finalScore ?? runningScore;
+    const integerBaseScore = Math.floor(displayScore);
+    const pct = maxPossibleScore > 0 ? integerBaseScore / maxPossibleScore : 0;
+    const badge = pct >= 1 ? 'FLAWLESS' : pct >= 0.7 ? 'ON FIRE' : pct >= 0.4 ? 'GOOD RUN' : 'KEEP GOING';
 
     return (
-      <SafeAreaView style={dynamicStyles.container}>
-        <View style={dynamicStyles.scoreContainer}>
-          <View style={dynamicStyles.trophyBadge}>
-            <Trophy size={32} color="#e11d48" />
+      <SafeAreaView style={s.container}>
+        <View style={s.scoreContainer}>
+          <Animated.View style={[s.trophyBadge, { transform: [{ scale: trophyBounce.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }, { rotate: '-6deg' }] }]}>
+            <Trophy size={36} color={RUBRIC} strokeWidth={2.25} />
+          </Animated.View>
+
+          <AppText type="bold" style={s.scoreHeader}>GLORY!</AppText>
+          <View style={s.badgePill}><AppText type="bold" style={s.badgePillText}>{badge}</AppText></View>
+          <AppText style={s.scoreSubHeader}>STAGE 0{stageNumber || 1} COMPLETED</AppText>
+
+          {saveError && (
+            <View style={s.saveWarning}>
+              <AlertTriangle size={14} color={RUBRIC} />
+              <AppText style={s.saveWarningText}>Your score may not have synced. Check your connection.</AppText>
+            </View>
+          )}
+
+          <View style={s.scoreCard}>
+            <AppText type="bold" style={s.scoreBig}>{integerBaseScore}<AppText style={s.scoreBigMax}> / {maxPossibleScore}+</AppText></AppText>
+            <AppText style={s.scoreCaption}>TOTAL SCORE</AppText>
           </View>
 
-          <AppText type="bold" style={dynamicStyles.scoreHeader}>GLORY!</AppText>
-          <AppText style={dynamicStyles.scoreSubHeader}>STAGE 0{stageNumber || 1} COMPLETED</AppText>
-
-          <View style={dynamicStyles.scoreCard}>
-            <View style={dynamicStyles.scoreRow}>
-              <AppText style={dynamicStyles.scoreLabelText}>BASE SCORE</AppText>
-              <AppText type="bold" style={dynamicStyles.scoreValueText}>{integerBaseScore} / {maxPossibleScore}</AppText>
-            </View>
-            <View style={dynamicStyles.scoreDivider} />
-            <View style={dynamicStyles.scoreRow}>
-              <AppText style={dynamicStyles.scoreLabelText}>SPEED BONUS</AppText>
-              <AppText type="bold" style={dynamicStyles.scoreValueText}>+{displayBonus}</AppText>
-            </View>
-          </View>
-
-          <View style={dynamicStyles.scoreActions}>
-            <TouchableOpacity style={dynamicStyles.retryBtn} onPress={handleRestart} activeOpacity={0.85}>
-              <RotateCcw size={18} color={isDarkMode ? '#ffffff' : '#352a48'} style={{ marginRight: 8 }} />
-              <AppText type="bold" style={dynamicStyles.retryBtnText}>REPLAY</AppText>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={dynamicStyles.proceedBtn} onPress={() => navigation.goBack()} activeOpacity={0.85}>
-              <AppText type="bold" style={dynamicStyles.proceedBtnText}>NEXT QUIZ</AppText>
+          <View style={s.scoreActions}>
+            <Pressable style={({ pressed }) => [s.retryBtn, pressed && s.btnPressed]} onPress={handleRestart}>
+              <RotateCcw size={18} color={colors.text} style={{ marginRight: 8 }} />
+              <AppText type="bold" style={s.retryBtnText}>REPLAY</AppText>
+            </Pressable>
+            <Pressable style={({ pressed }) => [s.proceedBtn, pressed && s.btnPressed]} onPress={() => navigation.goBack()}>
+              <AppText type="bold" style={s.proceedBtnText}>NEXT QUIZ</AppText>
               <ArrowRight size={18} color="#ffffff" style={{ marginLeft: 8 }} />
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
       </SafeAreaView>
@@ -330,83 +243,54 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
 
   const currentQuestion = questions[currentIndex];
   const progressPercent = ((currentIndex + 1) / questions.length) * 100;
-
-  let parsedOptions = [];
-  try {
-    if (Array.isArray(currentQuestion.options)) {
-      parsedOptions = currentQuestion.options;
-    } else if (typeof currentQuestion.options === 'string') {
-      parsedOptions = JSON.parse(currentQuestion.options);
-    }
-  } catch (err) {
-    console.error('Failed to parse question options:', err);
-    parsedOptions = [];
-  }
+  const options = currentQuestion?.options || [];
 
   return (
-    <SafeAreaView style={dynamicStyles.container}>
-      <Animated.View style={[dynamicStyles.innerContainer, { transform: [{ translateY: slideAnim }] }]}>
-        
-        {/* Top Bar Header */}
-        <View style={dynamicStyles.headerRow}>
-          <View style={dynamicStyles.stageTag}>
-            <Sparkles size={12} color="#e11d48" />
-            <AppText type="bold" style={dynamicStyles.stageTagText}>STAGE 0{stageNumber || 1}</AppText>
+    <SafeAreaView style={s.container}>
+      <Animated.View style={[s.innerContainer, { transform: [{ translateY: slideAnim }] }]}>
+        <View style={s.headerRow}>
+          <View style={s.stageTag}>
+            <Flame size={12} color={RUBRIC} />
+            <AppText type="bold" style={s.stageTagText}>STAGE 0{stageNumber || 1}</AppText>
           </View>
-          <AppText type="bold" style={dynamicStyles.counterText}>
-            {currentIndex + 1} <AppText style={dynamicStyles.counterTotal}>/ {questions.length}</AppText>
-          </AppText>
+          {streak >= 2 && (
+            <View style={s.streakTag}>
+              <Flame size={12} color={RUBRIC} />
+              <AppText type="bold" style={s.streakTagText}>{streak} STREAK</AppText>
+            </View>
+          )}
+          <AppText type="bold" style={s.counterText}>{currentIndex + 1}<AppText style={s.counterTotal}>/{questions.length}</AppText></AppText>
         </View>
 
-        {/* Clean Progress Bar */}
-        <View style={dynamicStyles.progressBarTrack}>
-          <View style={[dynamicStyles.progressBarFill, { width: `${progressPercent}%` }]} />
+        <View style={s.progressBarTrack}>
+          <View style={[s.progressBarFill, { width: `${progressPercent}%` }]} />
         </View>
 
-        {/* Main Quote Card */}
-        <View style={dynamicStyles.quoteCard}>
-          <AppText style={dynamicStyles.quoteText}>{currentQuestion?.question || currentQuestion?.quote}</AppText>
-        </View>
+        <Animated.View style={[s.quoteCard, { transform: [{ scale: cardScale }] }]}>
+          <View style={s.quoteMark}><AppText style={s.quoteMarkText}>"</AppText></View>
+          <AppText style={s.quoteText}>{currentQuestion?.question}</AppText>
+        </Animated.View>
 
-        {/* Options Stack */}
-        <ScrollView contentContainerStyle={dynamicStyles.optionsList} showsVerticalScrollIndicator={false}>
-          {parsedOptions.map((opt, index) => {
+        <ScrollView contentContainerStyle={s.optionsList} showsVerticalScrollIndicator={false}>
+          {options.map((opt, index) => {
             const isSelected = selectedOption === opt;
-            const cleanOpt = opt.replace(/^[A-D]\)\s*/, '').trim().toLowerCase();
-            const targetAnswer = currentQuestion?.answer || currentQuestion?.author || '';
-            const cleanTarget = targetAnswer.replace(/^[A-D]\)\s*/, '').trim().toLowerCase();
-            const isCorrectAnswer = cleanOpt === cleanTarget;
-
-            let optionStyle = dynamicStyles.optionCard;
-            let textStyle = dynamicStyles.optionText;
-
-            if (isAnswered) {
-              if (isCorrectAnswer) {
-                optionStyle = [dynamicStyles.optionCard, dynamicStyles.correctCard];
-                textStyle = [dynamicStyles.optionText, dynamicStyles.correctText];
-              } else if (isSelected && !isCorrectAnswer) {
-                optionStyle = [dynamicStyles.optionCard, dynamicStyles.incorrectCard];
-                textStyle = [dynamicStyles.optionText, dynamicStyles.incorrectText];
-              }
+            let optionStyle = s.optionCard;
+            let textStyle = s.optionText;
+            if (isAnswered && isSelected) {
+              optionStyle = [s.optionCard, lastCorrect ? s.correctCard : s.incorrectCard];
+              textStyle = [s.optionText, lastCorrect ? s.correctText : s.incorrectText];
             } else if (isSelected) {
-              optionStyle = [dynamicStyles.optionCard, dynamicStyles.selectedCard];
-              textStyle = [dynamicStyles.optionText, dynamicStyles.selectedText];
+              optionStyle = [s.optionCard, s.selectedCard];
+              textStyle = [s.optionText, s.selectedText];
             }
-
             return (
-              <TouchableOpacity
-                key={index}
-                style={optionStyle}
-                onPress={() => handleSelect(opt)}
-                activeOpacity={0.85}
-                disabled={isAnswered}
-              >
-                <View style={dynamicStyles.optionContent}>
+              <Pressable key={index} style={({ pressed }) => [optionStyle, pressed && !isAnswered && s.optionPressed]} onPress={() => handleSelect(opt)} disabled={isAnswered || submitting}>
+                <View style={s.optionContent}>
                   <AppText type="bold" style={textStyle}>{opt}</AppText>
-                  {isAnswered && isCorrectAnswer && <CheckCircle2 size={22} color="#16a34a" />}
-                  {isAnswered && isSelected && !isCorrectAnswer && <XCircle size={22} color="#dc2626" />}
+                  {isAnswered && isSelected && lastCorrect && <CheckCircle2 size={22} color="#16a34a" />}
+                  {isAnswered && isSelected && !lastCorrect && <XCircle size={22} color={RUBRIC} />}
                 </View>
-              </TouchableOpacity>
+              </Pressable>
             );
           })}
         </ScrollView>
@@ -415,44 +299,55 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
   );
 };
 
-const getStyles = (isDarkMode) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: isDarkMode ? '#121212' : '#ffffff' },
+const getStyles = (colors, isDark) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   innerContainer: { flex: 1, padding: 20, paddingBottom: 24 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: isDarkMode ? '#121212' : '#ffffff' },
-  emptyBadge: { width: 56, height: 56, borderRadius: 28, backgroundColor: isDarkMode ? '#1f161a' : '#fff1f2', justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: isDarkMode ? '#4c1d28' : '#fecdd3' },
-  emptyTitle: { fontSize: 22, color: isDarkMode ? '#f3f0f7' : '#352a48', marginBottom: 8, letterSpacing: 1 },
-  emptyText: { fontSize: 14, color: isDarkMode ? '#aba4b8' : '#524b60', textAlign: 'center' },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  stageTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDarkMode ? '#1f161a' : '#fff1f2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: isDarkMode ? '#4c1d28' : '#fecdd3', gap: 6 },
-  stageTagText: { fontSize: 11, letterSpacing: 2, color: '#e11d48', lineHeight: 14 },
-  counterText: { fontSize: 14, color: isDarkMode ? '#f3f0f7' : '#352a48', letterSpacing: 1 },
-  counterTotal: { color: isDarkMode ? '#aba4b8' : '#8d859e', fontSize: 13 },
-  progressBarTrack: { height: 6, backgroundColor: isDarkMode ? '#27252b' : '#f1f0f5', borderRadius: 3, marginBottom: 24, overflow: 'hidden' },
-  progressBarFill: { height: '100%', backgroundColor: '#e11d48', borderRadius: 3 },
-  quoteCard: { backgroundColor: isDarkMode ? '#1a181f' : '#fcfcfd', borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', borderRadius: 16, padding: 24, marginBottom: 24, shadowColor: '#352a48', shadowOffset: { width: 4, height: 4 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 3 },
-  quoteText: { fontSize: 18, color: isDarkMode ? '#f3f0f7' : '#352a48', lineHeight: 28, fontWeight: '600' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  emptyBadge: { width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? 'rgba(200,30,58,0.12)' : '#fff1f2', justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1.5, borderColor: RUBRIC },
+  emptyTitle: { fontSize: 22, color: colors.text, marginBottom: 8, letterSpacing: 1 },
+  emptyText: { fontSize: 14, color: colors.textSecondary, textAlign: 'center' },
+  retryInlineBtn: { flexDirection: 'row', alignItems: 'center', marginTop: 20, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: RUBRIC },
+  retryInlineText: { fontSize: 13, letterSpacing: 1, color: RUBRIC },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8 },
+  stageTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(200,30,58,0.14)' : '#fff1f2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: isDark ? 'rgba(200,30,58,0.4)' : '#fecdd3', gap: 6 },
+  stageTagText: { fontSize: 11, letterSpacing: 2, color: RUBRIC, lineHeight: 14 },
+  streakTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(200,30,58,0.14)' : '#fff1f2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: isDark ? 'rgba(200,30,58,0.4)' : '#fecdd3', gap: 4 },
+  streakTagText: { fontSize: 11, letterSpacing: 1, color: RUBRIC, lineHeight: 14 },
+  counterText: { fontSize: 15, color: colors.text, letterSpacing: 0.5, marginLeft: 'auto' },
+  counterTotal: { color: colors.textSecondary, fontSize: 13 },
+  progressBarTrack: { height: 10, backgroundColor: isDark ? '#27252b' : '#f1f0f5', borderRadius: 5, marginBottom: 26, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: RUBRIC, borderRadius: 5, shadowColor: RUBRIC, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 6 },
+  quoteCard: { backgroundColor: colors.card, borderWidth: 2, borderColor: RUBRIC, borderRadius: 22, padding: 26, marginBottom: 24, shadowColor: RUBRIC, shadowOffset: { width: 0, height: 6 }, shadowOpacity: isDark ? 0.25 : 0.12, shadowRadius: 14, elevation: 6 },
+  quoteMark: { marginBottom: -6 },
+  quoteMarkText: { fontSize: 48, color: RUBRIC, fontWeight: '900', lineHeight: 48 },
+  quoteText: { fontSize: 19, color: colors.text, lineHeight: 28, fontWeight: '600' },
   optionsList: { gap: 12, paddingBottom: 20 },
-  optionCard: { backgroundColor: isDarkMode ? '#1a181f' : '#fcfcfd', borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', borderRadius: 12, padding: 18, shadowColor: '#352a48', shadowOffset: { width: 2, height: 2 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 2 },
+  optionCard: { backgroundColor: colors.card, borderWidth: 2, borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#f1e4e7', borderRadius: 16, padding: 18 },
+  optionPressed: { transform: [{ scale: 0.97 }], backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#fff8f8' },
   optionContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' },
-  selectedCard: { backgroundColor: isDarkMode ? '#4a3f61' : '#352a48' },
-  correctCard: { backgroundColor: isDarkMode ? '#062812' : '#f0fdf4', borderColor: '#16a34a' },
-  incorrectCard: { backgroundColor: isDarkMode ? '#381212' : '#fef2f2', borderColor: '#dc2626' },
-  optionText: { fontSize: 16, color: isDarkMode ? '#f3f0f7' : '#352a48', flex: 1, marginRight: 10 },
+  selectedCard: { backgroundColor: RUBRIC, borderColor: RUBRIC },
+  correctCard: { backgroundColor: isDark ? '#062812' : '#f0fdf4', borderColor: '#16a34a' },
+  incorrectCard: { backgroundColor: isDark ? 'rgba(200,30,58,0.14)' : '#fef2f2', borderColor: RUBRIC },
+  optionText: { fontSize: 16, color: colors.text, flex: 1, marginRight: 10 },
   selectedText: { color: '#ffffff', fontWeight: 'bold' },
   correctText: { color: '#16a34a' },
-  incorrectText: { color: '#dc2626' },
-  scoreContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: isDarkMode ? '#121212' : '#ffffff' },
-  trophyBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: isDarkMode ? '#1f161a' : '#fff1f2', justifyContent: 'center', alignItems: 'center', marginBottom: 20, borderWidth: 2, borderColor: isDarkMode ? '#4c1d28' : '#fecdd3' },
-  scoreHeader: { fontSize: 26, color: isDarkMode ? '#f3f0f7' : '#352a48', letterSpacing: -0.5, marginBottom: 4 },
-  scoreSubHeader: { fontSize: 12, letterSpacing: 2, color: isDarkMode ? '#aba4b8' : '#524b60', marginBottom: 28 },
-  scoreCard: { width: '100%', backgroundColor: isDarkMode ? '#1a181f' : '#fcfcfd', borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', borderRadius: 16, padding: 20, marginBottom: 28, shadowColor: '#352a48', shadowOffset: { width: 4, height: 4 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 3 },
-  scoreRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
-  scoreDivider: { height: 2, backgroundColor: isDarkMode ? '#27252b' : '#f1f0f5', marginVertical: 8 },
-  scoreLabelText: { fontSize: 13, color: isDarkMode ? '#aba4b8' : '#524b60', letterSpacing: 1 },
-  scoreValueText: { fontSize: 18, color: isDarkMode ? '#f3f0f7' : '#352a48' },
+  incorrectText: { color: RUBRIC },
+  scoreContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  trophyBadge: { width: 88, height: 88, borderRadius: 26, backgroundColor: isDark ? 'rgba(200,30,58,0.14)' : '#fff1f2', justifyContent: 'center', alignItems: 'center', marginBottom: 18, borderWidth: 2, borderColor: RUBRIC },
+  scoreHeader: { fontSize: 34, color: colors.text, letterSpacing: -1, marginBottom: 10 },
+  badgePill: { backgroundColor: RUBRIC, paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, marginBottom: 10 },
+  badgePillText: { fontSize: 12, letterSpacing: 2, color: '#ffffff' },
+  scoreSubHeader: { fontSize: 12, letterSpacing: 2, color: colors.textSecondary, marginBottom: 20 },
+  saveWarning: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: isDark ? 'rgba(200,30,58,0.14)' : '#fef2f2' },
+  saveWarningText: { fontSize: 12, color: RUBRIC, flexShrink: 1 },
+  scoreCard: { width: '100%', alignItems: 'center', backgroundColor: colors.card, borderRadius: 22, paddingVertical: 26, marginBottom: 28, borderWidth: 2, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#f1e4e7' },
+  scoreBig: { fontSize: 46, color: RUBRIC, letterSpacing: -1 },
+  scoreBigMax: { fontSize: 20, color: colors.textSecondary },
+  scoreCaption: { fontSize: 11, letterSpacing: 2, color: colors.textSecondary, marginTop: 4 },
   scoreActions: { width: '100%', flexDirection: 'row', gap: 12 },
-  retryBtn: { flex: 1, flexDirection: 'row', height: 52, backgroundColor: isDarkMode ? '#1a181f' : '#f4f3f7', borderRadius: 12, borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', alignItems: 'center', justifyContent: 'center', shadowColor: '#352a48', shadowOffset: { width: 2, height: 2 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 2 },
-  retryBtnText: { fontSize: 13, color: isDarkMode ? '#f3f0f7' : '#352a48', letterSpacing: 1 },
-  proceedBtn: { flex: 1, flexDirection: 'row', height: 52, backgroundColor: isDarkMode ? '#4a3f61' : '#352a48', borderRadius: 12, borderWidth: 2, borderColor: isDarkMode ? '#4a3f61' : '#352a48', alignItems: 'center', justifyContent: 'center', shadowColor: '#352a48', shadowOffset: { width: 2, height: 2 }, shadowOpacity: isDarkMode ? 0 : 1, shadowRadius: 0, elevation: 2 },
-  proceedBtnText: { fontSize: 13, color: '#ffffff', letterSpacing: 1 }
+  btnPressed: { transform: [{ scale: 0.97 }] },
+  retryBtn: { flex: 1, flexDirection: 'row', height: 54, backgroundColor: isDark ? colors.card : '#faf5f5', borderRadius: 16, borderWidth: 2, borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#f1e4e7', alignItems: 'center', justifyContent: 'center' },
+  retryBtnText: { fontSize: 13, color: colors.text, letterSpacing: 1 },
+  proceedBtn: { flex: 1, flexDirection: 'row', height: 54, backgroundColor: RUBRIC, borderRadius: 16, alignItems: 'center', justifyContent: 'center', shadowColor: RUBRIC, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 5 },
+  proceedBtnText: { fontSize: 13, color: '#ffffff', letterSpacing: 1 },
 });

@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppText } from '../../components/AppText';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { Audio } from 'expo-av';
+import { Audio } from 'expo-audio';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -16,7 +16,7 @@ export default function WordSearchScreen({ route, navigation }) {
   const stageId = route?.params?.stageId ?? null;
 
   const [loading, setLoading] = useState(true);
-  const [stageData, setStageData] = useState(null);
+  const [attemptId, setAttemptId] = useState(null);
   const [grid, setGrid] = useState([]);
   const [wordsToFind, setWordsToFind] = useState([]);
   const [foundCellCoordinates, setFoundCellCoordinates] = useState([]);
@@ -36,6 +36,7 @@ export default function WordSearchScreen({ route, navigation }) {
   // Background Music Setup & Playback Handling
   useEffect(() => {
     let isMounted = true;
+    let cancelled = false;
 
     async function setupAndPlayMusic() {
       try {
@@ -49,6 +50,11 @@ export default function WordSearchScreen({ route, navigation }) {
           require('../../../assets/audio/gameS3.mp3'),
           { isLooping: true, volume: 0.1 }
         );
+
+        if (cancelled) {
+          await sound.unloadAsync();
+          return;
+        }
 
         if (isMounted) {
           backgroundMusic.current = sound;
@@ -66,6 +72,7 @@ export default function WordSearchScreen({ route, navigation }) {
 
     return () => {
       isMounted = false;
+      cancelled = true;
       if (backgroundMusic.current) {
         backgroundMusic.current.unloadAsync();
         backgroundMusic.current = null;
@@ -89,7 +96,9 @@ export default function WordSearchScreen({ route, navigation }) {
     }
   };
 
-  // Fetch puzzle data from Supabase on mount
+  // Fetch puzzle data on mount — now via the server-verified attempt RPC
+  // instead of a direct table select, so the score/word-found tracking
+  // this stage produces can't be tampered with client-side.
   useEffect(() => {
     fetchStageData();
   }, [stageNumber, stageId]);
@@ -98,15 +107,13 @@ export default function WordSearchScreen({ route, navigation }) {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (appState.current.match(/active/) && nextAppState.match(/inactive|background/)) {
-        if (stageData && !isStageCompleteModalVisible) {
+        if (grid.length > 0 && !isStageCompleteModalVisible) {
           try {
             const activeState = {
               foundCellCoordinates,
               wordsToFind,
-              totalScore,
               moveCount,
-              stageData,
-              signature: JSON.stringify(stageData.words) + JSON.stringify(stageData.grid)
+              signature: JSON.stringify(wordsToFind.map(w => w.word)) + JSON.stringify(grid)
             };
             await AsyncStorage.setItem(storageKey, JSON.stringify(activeState));
           } catch (err) {
@@ -120,32 +127,33 @@ export default function WordSearchScreen({ route, navigation }) {
     return () => {
       subscription.remove();
     };
-  }, [foundCellCoordinates, wordsToFind, totalScore, moveCount, stageData, isStageCompleteModalVisible]);
+  }, [foundCellCoordinates, wordsToFind, moveCount, grid, isStageCompleteModalVisible]);
 
   const fetchStageData = async () => {
     try {
       setLoading(true);
-      let query = supabase.from('word_search_puzzles').select('*');
-      
-      if (stageId) {
-        query = query.eq('id', stageId);
-      } else {
-        query = query.eq('stage_number', stageNumber);
-      }
 
-      const timeoutPromise = new Promise((_, reject) => 
+      let puzzleQuery = supabase.from('word_search_puzzles').select('id, stage_number, title');
+      puzzleQuery = stageId ? puzzleQuery.eq('id', stageId) : puzzleQuery.eq('stage_number', stageNumber);
+
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Network request timed out')), 8000)
       );
 
-      const { data, error } = await Promise.race([query.maybeSingle(), timeoutPromise]);
-      if (error) throw error;
+      const { data: puzzleMeta, error: metaError } = await Promise.race([puzzleQuery.maybeSingle(), timeoutPromise]);
+      if (metaError) throw metaError;
 
-      if (data) {
-        await processLoadedStage(data);
-      } else {
+      if (!puzzleMeta) {
         Alert.alert('Error', 'Puzzle not found.');
         navigation?.goBack?.();
+        return;
       }
+
+      const { data, error } = await supabase.rpc('start_word_search_attempt', { p_puzzle_id: puzzleMeta.id });
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error('Could not start this puzzle.');
+
+      await processLoadedStage(data[0]);
     } catch (error) {
       console.warn('Supabase fetch failed or timed out:', error.message);
       // Fallback to local active session if offline
@@ -155,30 +163,27 @@ export default function WordSearchScreen({ route, navigation }) {
     }
   };
 
-  const processLoadedStage = async (data) => {
-    const serverSignature = JSON.stringify(data.words) + JSON.stringify(data.grid);
-    const formattedWords = (data.words || []).map(w => ({
+  const processLoadedStage = async (row) => {
+    const serverSignature = JSON.stringify(row.words) + JSON.stringify(row.grid);
+    const formattedWords = (row.words || []).map(w => ({
       word: (w.word || w).toUpperCase(),
       found: false
     }));
 
-    setStageData(data);
-    setGrid(data.grid || []);
+    setAttemptId(row.attempt_id);
+    setGrid(row.grid || []);
 
     // Check if there is an active session saved for this exact puzzle layout
     try {
       const savedStateString = await AsyncStorage.getItem(storageKey);
       if (savedStateString) {
         const parsed = JSON.parse(savedStateString);
-        // Ensure the saved state matches the current database puzzle version
         if (parsed.signature === serverSignature && parsed.wordsToFind) {
           setFoundCellCoordinates(parsed.foundCellCoordinates || []);
           setWordsToFind(parsed.wordsToFind);
-          setTotalScore(parsed.totalScore || 0);
           setMoveCount(parsed.moveCount || 0);
           return;
         } else {
-          // Database content changed, clear old session
           await AsyncStorage.removeItem(storageKey);
         }
       }
@@ -186,7 +191,6 @@ export default function WordSearchScreen({ route, navigation }) {
       console.error('Error reading active session:', e);
     }
 
-    // Default fresh start if no valid active session
     setFoundCellCoordinates([]);
     setWordsToFind(formattedWords);
     setMoveCount(0);
@@ -198,12 +202,9 @@ export default function WordSearchScreen({ route, navigation }) {
       const savedStateString = await AsyncStorage.getItem(storageKey);
       if (savedStateString) {
         const parsed = JSON.parse(savedStateString);
-        if (parsed.stageData) {
-          setStageData(parsed.stageData);
-          setGrid(parsed.stageData.grid || []);
+        if (parsed.wordsToFind) {
           setWordsToFind(parsed.wordsToFind || []);
           setFoundCellCoordinates(parsed.foundCellCoordinates || []);
-          setTotalScore(parsed.totalScore || 0);
           setMoveCount(parsed.moveCount || 0);
           return;
         }
@@ -301,33 +302,49 @@ export default function WordSearchScreen({ route, navigation }) {
     setActiveSelection(currentSelection => {
       if (currentSelection.length === 0) return currentSelection;
 
-      setMoveCount(prev => prev + 1);
-
       const formedWord = currentSelection.map(c => c.char).join('');
       const reverseWord = [...currentSelection].reverse().map(c => c.char).join('');
 
       const matchedIndex = wordsToFind.findIndex(
         w => !w.found && (w.word === formedWord || w.word === reverseWord)
       );
+      const isCorrectGuess = matchedIndex > -1;
 
-      if (matchedIndex > -1) {
+      setMoveCount(prev => prev + 1);
+
+      // Score/word-found tracking now goes through the server, which
+      // validates the word is real and not already claimed, and owns the
+      // move count used for the efficiency penalty — the client can no
+      // longer just insert whatever score it wants.
+      supabase.rpc('record_word_found', {
+        p_attempt_id: attemptId,
+        p_word: isCorrectGuess ? wordsToFind[matchedIndex].word : formedWord,
+        p_is_correct_guess: isCorrectGuess,
+      }).then(({ data, error }) => {
+        if (error) {
+          console.error('Error recording move:', error.message);
+          return;
+        }
+        const accepted = data?.[0]?.accepted;
+        if (!isCorrectGuess || !accepted) return;
+
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        
-        const updatedWords = [...wordsToFind];
-        updatedWords[matchedIndex].found = true;
-        setWordsToFind(updatedWords);
+
+        setWordsToFind(prevWords => {
+          const updatedWords = [...prevWords];
+          updatedWords[matchedIndex].found = true;
+
+          if (updatedWords.every(w => w.found)) {
+            finalizeStageScore();
+          }
+          return updatedWords;
+        });
 
         setFoundCellCoordinates(prev => [...prev, ...currentSelection]);
-        
-        const addedScore = 2; // 2 points per word
-        setTotalScore(prev => {
-          const newTotal = prev + addedScore;
-          if (updatedWords.every(w => w.found)) {
-            finalizeStageScore(newTotal);
-          }
-          return newTotal;
-        });
-      } else {
+        setTotalScore(prev => prev + 2);
+      });
+
+      if (!isCorrectGuess) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
 
@@ -335,12 +352,14 @@ export default function WordSearchScreen({ route, navigation }) {
     });
   };
 
-  const finalizeStageScore = async (currentAccumulatedScore) => {
-    const efficiencyPenalty = Number((moveCount * 0.05).toFixed(2));
-    const finalCalculatedScore = Math.max(2, Number((currentAccumulatedScore - efficiencyPenalty).toFixed(2)));
-
-    setTotalScore(finalCalculatedScore);
-    await saveGameSession(finalCalculatedScore, moveCount);
+  const finalizeStageScore = async () => {
+    try {
+      const { data, error } = await supabase.rpc('finish_word_search_attempt', { p_attempt_id: attemptId });
+      if (error) throw error;
+      setTotalScore(data?.[0]?.final_score ?? totalScore);
+    } catch (err) {
+      console.error('Failed to finalize word search attempt:', err.message);
+    }
 
     try {
       await AsyncStorage.removeItem(storageKey);
@@ -351,27 +370,7 @@ export default function WordSearchScreen({ route, navigation }) {
     setIsStageCompleteModalVisible(true);
   };
 
-  const saveGameSession = async (finalTotalScore, finalMoves) => {
-    try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) return;
-
-      await supabase.from('game_sessions').insert({
-        user_id: session.user.id,
-        game_type: 'search',
-        level_number: stageNumber,
-        score: finalTotalScore,
-        time_taken_seconds: finalMoves,
-        is_completed: true,
-        completed_at: new Date(),
-        updated_at: new Date()
-      });
-    } catch (err) {
-      console.error('Failed to record session:', err.message);
-    }
-  };
-
-  if (loading || !stageData) {
+  if (loading || grid.length === 0) {
     return (
       <View style={styles.loaderContainer}>
         <ActivityIndicator size="large" color="#e11d48" />
@@ -381,7 +380,7 @@ export default function WordSearchScreen({ route, navigation }) {
   }
 
   const numCols = grid[0]?.length || 10;
-  const availableWidth = SCREEN_WIDTH - 48; 
+  const availableWidth = SCREEN_WIDTH - 48;
   const dynamicCellSize = Math.floor(availableWidth / numCols);
 
   const currentActiveWordString = activeSelection.map(c => c.char).join('');
@@ -528,11 +527,11 @@ export default function WordSearchScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   rootWrapper: { flex: 1 },
-  container: { flex: 1, backgroundColor: '#fcfcfd' },
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fcfcfd' },
+  container: { flex: 1, backgroundColor: '#fdf7f5' },
+  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fdf7f5' },
   loaderText: { marginTop: 12, fontSize: 13, color: '#e11d48', fontWeight: '700', letterSpacing: 1.5 },
   
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#f6e4c8' },
   headerRightActions: { flexDirection: 'row', gap: 8 },
   headerTitleContainer: { alignItems: 'center' },
   headerCategory: { fontSize: 13, fontWeight: '700', color: '#1e293b', letterSpacing: 2.5, marginBottom: 2 },
@@ -544,27 +543,27 @@ const styles = StyleSheet.create({
   contentContainer: { flex: 1, paddingHorizontal: 24, paddingTop: 16, alignItems: 'center' },
   scrollContent: { width: '100%', alignItems: 'center', paddingBottom: 20 },
 
-  wordListCard: { width: '100%', backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 10, elevation: 2 },
+  wordListCard: { width: '100%', backgroundColor: '#fefaf6', borderRadius: 18, padding: 16, borderWidth: 1, borderColor: '#f6e4c8', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 10, elevation: 2 },
   wordListAccent: { width: 24, height: 3, backgroundColor: '#e11d48', borderRadius: 2, marginBottom: 10 },
   wordListTitle: { fontSize: 11, fontWeight: '700', color: '#64748b', letterSpacing: 1.2, marginBottom: 8 },
-  activeBuildingContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff1f2', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#fecdd3' },
-  activeBuildingLabel: { fontSize: 12, fontWeight: '600', color: '#e11d48' },
-  activeBuildingText: { fontSize: 14, fontWeight: '800', color: '#e11d48', letterSpacing: 1 },
+  activeBuildingContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef6e3', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#f7dfa0' },
+  activeBuildingLabel: { fontSize: 12, fontWeight: '600', color: '#b8790f' },
+  activeBuildingText: { fontSize: 14, fontWeight: '800', color: '#b8790f', letterSpacing: 1 },
   wordChipsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  wordChip: { backgroundColor: '#f8fafc', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  foundWordChip: { backgroundColor: '#fff1f2', borderColor: '#fecdd3' },
+  wordChip: { backgroundColor: '#fdf5ee', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#f0ddc8' },
+  foundWordChip: { backgroundColor: '#e3f9ef', borderColor: '#a7ecce' },
   wordChipText: { fontSize: 12, fontWeight: '700', color: '#334155', letterSpacing: 0.5 },
-  foundWordChipText: { color: '#e11d48', textDecorationLine: 'line-through' },
+  foundWordChipText: { color: '#0f9d6c', textDecorationLine: 'line-through' },
 
-  gridContainer: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 8, marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 10, elevation: 2 },
+  gridContainer: { backgroundColor: '#fef6f7', borderRadius: 16, padding: 8, marginBottom: 12, borderWidth: 1, borderColor: '#fbd8dc', shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 10, elevation: 2 },
   gridRow: { flexDirection: 'row' },
-  gridCell: { margin: 1, borderRadius: 6, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center' },
+  gridCell: { margin: 1, borderRadius: 6, backgroundColor: '#fffbf9', borderWidth: 1, borderColor: '#fbe4e7', alignItems: 'center', justifyContent: 'center' },
   
-  selectedActiveCell: { backgroundColor: '#f43f5e', borderColor: '#e11d48' },
+  selectedActiveCell: { backgroundColor: '#e8a930', borderColor: '#b8790f' },
   selectedActiveCellText: { color: '#FFFFFF' },
   
-  foundGridCell: { backgroundColor: '#ffe4e6', borderColor: '#fecdd3' },
-  foundGridCellText: { color: '#e11d48', fontWeight: '800' },
+  foundGridCell: { backgroundColor: '#d9f5e6', borderColor: '#8fe0bb' },
+  foundGridCellText: { color: '#0f9d6c', fontWeight: '800' },
 
   gridCellText: { fontWeight: '700', color: '#1e293b' },
 
@@ -573,7 +572,7 @@ const styles = StyleSheet.create({
   stageCompleteIconContainer: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#fff1f2', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   stageCompleteTitle: { fontSize: 22, fontWeight: '800', color: '#1E293B', marginBottom: 6, textAlign: 'center' },
   stageCompleteSubtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 20, lineHeight: 20 },
-  stageCompleteScoreBadge: { backgroundColor: '#F8FAFC', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 24, alignItems: 'center', width: '100%', marginBottom: 24, borderWidth: 1, borderColor: '#E2E8F0' },
+  stageCompleteScoreBadge: { backgroundColor: '#eafaf3', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 24, alignItems: 'center', width: '100%', marginBottom: 24, borderWidth: 1, borderColor: '#bdead6' },
   stageCompleteScoreLabel: { fontSize: 12, fontWeight: '600', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
   stageCompleteScoreValue: { fontSize: 24, fontWeight: '800', color: '#e11d48' },
   stageCompleteButton: { flexDirection: 'row', backgroundColor: '#e11d48', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 14, alignItems: 'center', justifyContent: 'center', width: '100%', shadowColor: '#e11d48', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4 },

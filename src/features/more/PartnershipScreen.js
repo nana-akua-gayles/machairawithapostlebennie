@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
   stepper: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, padding: 4 },
   stepBtn: { padding: 20 },
   stepIcon: { fontSize: 20 },
-  qty: { flex: 1, textAlign: 'center', fontSize: 24 },
+  qty: { flex: 1, textAlign: 'center', fontSize: 21 },
   footer: { marginTop: 20, paddingTop: 30, borderTopWidth: 1 },
   totalLabel: { fontSize: 14 },
   totalPrice: { fontSize: 40, marginVertical: 10, marginBottom: 40 },

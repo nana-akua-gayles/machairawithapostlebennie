@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
   quickResumeHeaderRow: { alignItems: 'flex-end', marginBottom: 16 },
   quickResumeCloseBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f4f4f5', justifyContent: 'center', alignItems: 'center' },
   quickResumeHeroTextSection: { marginBottom: 24 },
-  quickResumeWelcomeTitle: { fontSize: 28, color: '#18181b' },
+  quickResumeWelcomeTitle: { fontSize: 25, color: '#18181b' },
   quickResumeSubtext: { fontSize: 15, color: '#71717a', marginTop: 6, lineHeight: 20 },
   quickResumeCardWrapper: { marginBottom: 16 },
   quickResumeProfileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fafafa', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#e4e4e7' },
