@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, StyleSheet, TouchableOpacity, StatusBar, FlatList, ScrollView, Image, useWindowDimensions, ActivityIndicator, Platform, BackHandler } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, StatusBar, FlatList, ScrollView, Image, useWindowDimensions, ActivityIndicator, Platform, BackHandler, Animated } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,26 +11,52 @@ const COLLAPSED_LINES = 4;
 const HERO_HEIGHT_RATIO = 0.55;
 const CARD_TOP_INSET_RATIO = 0.42;
 const ANDROID_MIN_BOTTOM_PADDING = 24;
+const EXPAND_ANIM_MS = 280;
+const PAGINATION_CLEARANCE = 64;
 
 const normalizeBody = (body) => (typeof body === 'string' ? body.replace(/\\n/g, '\n') : body);
 const androidBlurFallback = Platform.OS === 'android' ? { backgroundColor: 'rgba(10,10,10,0.55)' } : null;
 
-const ArticlePage = React.memo(function ArticlePage({ item, index, width, minHeight, topInset, isExpanded, onToggleExpand, scrollRef }) {
+const ArticlePage = React.memo(function ArticlePage({ item, index, width, height, topInset, bottomClearance, isExpanded, onToggleExpand, scrollRef }) {
   const body = useMemo(() => normalizeBody(item.body), [item.body]);
+  const animatedTop = useRef(new Animated.Value(topInset)).current;
+
+  useEffect(() => {
+    Animated.timing(animatedTop, {
+      toValue: isExpanded ? 0 : topInset,
+      duration: EXPAND_ANIM_MS,
+      useNativeDriver: false,
+    }).start();
+  }, [isExpanded, topInset, animatedTop]);
 
   return (
-    <View style={{ width, flex: 1 }}>
-      <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingTop: topInset, flexGrow: 1 }} showsVerticalScrollIndicator={false} scrollEnabled={isExpanded} bounces={isExpanded} nestedScrollEnabled overScrollMode="never">
-        <BlurView intensity={80} tint="dark" experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined} style={[styles.contentContainer, androidBlurFallback, { minHeight, flexGrow: 1 }]}>
-          <AppText type="bold" style={styles.indexNumber}>0{index + 1}</AppText>
-          <AppText style={styles.title}>{item.title}</AppText>
-          <View style={styles.line} />
-          <AppText style={styles.body} numberOfLines={isExpanded ? undefined : COLLAPSED_LINES} ellipsizeMode="tail">{body}</AppText>
-          <TouchableOpacity onPress={() => onToggleExpand(item.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel={isExpanded ? 'Show less of this article' : 'Show more of this article'}>
-            <AppText style={styles.seeMore}>{isExpanded ? 'See less' : 'See more'}</AppText>
-          </TouchableOpacity>
-        </BlurView>
-      </ScrollView>
+    <View style={{ width, height }} pointerEvents="box-none">
+      <Animated.View style={[styles.cardWrapper, { width, top: animatedTop, bottom: 0 }]}>
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={isExpanded ? { flexGrow: 1 } : { flexGrow: 1, height: '100%' }}
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={isExpanded}
+          bounces={isExpanded}
+          nestedScrollEnabled
+          overScrollMode="never"
+        >
+          <BlurView intensity={80} tint="dark" experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined} style={[styles.contentContainer, androidBlurFallback, isExpanded ? { minHeight: height, paddingBottom: bottomClearance } : { flex: 1 }]}>
+            <View style={isExpanded ? undefined : styles.collapsedTextBlock}>
+              <AppText type="bold" style={styles.indexNumber}>0{index + 1}</AppText>
+              <AppText style={styles.title}>{item.title}</AppText>
+              <View style={styles.line} />
+              <AppText style={styles.body} numberOfLines={isExpanded ? undefined : COLLAPSED_LINES} ellipsizeMode="tail">{body}</AppText>
+            </View>
+            <View style={isExpanded ? styles.seeMoreSpacer : styles.seeMorePinned}>
+              <TouchableOpacity onPress={() => onToggleExpand(item.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel={isExpanded ? 'Show less of this article' : 'Show more of this article'}>
+                <AppText style={styles.seeMore}>{isExpanded ? 'See less' : 'See more'}</AppText>
+              </TouchableOpacity>
+            </View>
+          </BlurView>
+        </ScrollView>
+      </Animated.View>
     </View>
   );
 });
@@ -49,17 +75,23 @@ export const ArticleDetailsScreen = ({ navigation, route }) => {
   const [heroError, setHeroError] = useState(false);
   const [articles, setArticles] = useState(articlesList);
 
+  const isAnyExpanded = Object.values(expanded).some(Boolean);
+
   useEffect(() => { setArticles(articlesList); }, [articlesList]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return undefined;
     const onBackPress = () => {
+      if (isAnyExpanded) {
+        setExpanded({});
+        return true;
+      }
       navigation.goBack();
       return true;
     };
     const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => subscription.remove();
-  }, [navigation]);
+  }, [navigation, isAnyExpanded]);
 
   const scrollRefs = useRef({});
   const flatListRef = useRef(null);
@@ -87,16 +119,19 @@ export const ArticleDetailsScreen = ({ navigation, route }) => {
   const toggleExpand = useCallback((id) => {
     setExpanded((prev) => {
       const next = !prev[id];
-      requestAnimationFrame(() => scrollRefs.current[id]?.scrollTo({ y: next ? height * 0.35 : 0, animated: true }));
+      if (!next) {
+        requestAnimationFrame(() => scrollRefs.current[id]?.scrollTo({ y: 0, animated: true }));
+      }
       return { ...prev, [id]: next };
     });
-  }, [height]);
+  }, []);
 
   const handleScroll = useCallback((event) => {
+    if (isAnyExpanded) return;
     const slideSize = event.nativeEvent.layoutMeasurement.width || width;
     const index = Math.round(event.nativeEvent.contentOffset.x / slideSize);
     setActiveIndex(index);
-  }, [width]);
+  }, [width, isAnyExpanded]);
 
   const getItemLayout = useCallback((_, index) => ({ length: width, offset: width * index, index }), [width]);
 
@@ -104,9 +139,21 @@ export const ArticleDetailsScreen = ({ navigation, route }) => {
     setTimeout(() => flatListRef.current?.scrollToOffset({ offset: info.index * width, animated: false }), 50);
   }, [width]);
 
+  const bottomClearance = safeBottom + 40 + PAGINATION_CLEARANCE;
+
   const renderItem = useCallback(({ item, index }) => (
-    <ArticlePage item={item} index={index} width={width} minHeight={height} topInset={height * CARD_TOP_INSET_RATIO} isExpanded={!!expanded[item.id]} onToggleExpand={toggleExpand} scrollRef={(r) => { scrollRefs.current[item.id] = r; }} />
-  ), [width, height, expanded, toggleExpand]);
+    <ArticlePage
+      item={item}
+      index={index}
+      width={width}
+      height={height}
+      topInset={height * CARD_TOP_INSET_RATIO}
+      bottomClearance={bottomClearance}
+      isExpanded={!!expanded[item.id]}
+      onToggleExpand={toggleExpand}
+      scrollRef={(r) => { scrollRefs.current[item.id] = r; }}
+    />
+  ), [width, height, expanded, toggleExpand, bottomClearance]);
 
   if (!articles.length) {
     return (
@@ -134,6 +181,8 @@ export const ArticleDetailsScreen = ({ navigation, route }) => {
         horizontal
         pagingEnabled
         directionalLockEnabled
+        scrollEnabled={!isAnyExpanded}
+        bounces={false}
         showsHorizontalScrollIndicator={false}
         keyExtractor={keyExtractor}
         getItemLayout={getItemLayout}
@@ -148,9 +197,11 @@ export const ArticleDetailsScreen = ({ navigation, route }) => {
         initialNumToRender={1}
       />
 
-      <View style={[styles.pagination, { bottom: safeBottom + 40 }]}>
-        {articles.map((_, i) => <View key={i} style={[styles.dot, i === activeIndex ? styles.activeDot : null]} />)}
-      </View>
+      {!isAnyExpanded && (
+        <View style={[styles.pagination, { bottom: safeBottom + 40 }]}>
+          {articles.map((_, i) => <View key={i} style={[styles.dot, i === activeIndex ? styles.activeDot : null]} />)}
+        </View>
+      )}
 
       <TouchableOpacity style={[styles.backButton, { bottom: safeBottom + 20 }]} onPress={() => navigation.goBack()} accessibilityLabel="Go back" accessibilityRole="button">
         <Ionicons name="arrow-back" size={24} color="#FFF" />
@@ -165,11 +216,15 @@ const styles = StyleSheet.create({
   emptyText: { color: '#EEE', fontSize: 16 },
   heroImage: { position: 'absolute', top: 0, left: 0 },
   heroFallback: { backgroundColor: '#1a1a1a' },
+  cardWrapper: { position: 'absolute' },
   contentContainer: { padding: 40, borderTopLeftRadius: 40, borderTopRightRadius: 40, overflow: 'hidden' },
+  collapsedTextBlock: { flexShrink: 1 },
   title: { fontSize: 32, lineHeight: 38, color: '#FFF', fontWeight: '900', letterSpacing: -1 },
   indexNumber: { color: '#B22222', fontSize: 22, letterSpacing: 6, marginBottom: 15, fontWeight: '900' },
   line: { width: 70, height: 4, backgroundColor: '#B22222', marginVertical: 30 },
   body: { fontSize: 19, color: '#EEE', lineHeight: 32, marginBottom: 12 },
+  seeMoreSpacer: { height: 28 },
+  seeMorePinned: { marginTop: 'auto', paddingTop: 28, paddingBottom: PAGINATION_CLEARANCE },
   seeMore: { fontSize: 16, color: '#B22222', fontWeight: '700' },
   pagination: { position: 'absolute', left: 40, flexDirection: 'row' },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFF', marginHorizontal: 5, opacity: 0.5 },

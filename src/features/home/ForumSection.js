@@ -3,8 +3,6 @@ import { View, TextInput, Pressable, ActivityIndicator, Image, StyleSheet } from
 import { MessageSquare, Send, Trash2, Heart, CornerUpLeft, Edit2, X, Check } from 'lucide-react-native';
 import { AppText } from '../../components/AppText';
 
-const DEVOTIONAL_RED = '#DC2626';
-
 export default function ForumSection({
   comments = [],
   loadingComments,
@@ -20,57 +18,34 @@ export default function ForumSection({
   currentUser,
   colors,
 }) {
-  console.log('[ForumSection Debug] Render Props:', {
-    commentsCount: comments?.length,
-    likedCount: likedCommentIds?.length,
-    currentUserId: currentUser?.id,
-    hasHandleEditComment: typeof handleEditComment === 'function',
-    hasOnLikeComment: typeof onLikeComment === 'function',
-    hasHandleDeleteComment: typeof handleDeleteComment === 'function',
-    hasAddComment: typeof handleAddComment === 'function',
-  });
-
   const [editingCommentId, setEditingCommentId] = useState(null);
   const [editText, setEditText] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   const startEdit = (comment) => {
-    console.log('[ForumSection Debug] startEdit triggered for comment ID:', comment.id);
     setEditingCommentId(comment.id);
     setEditText(comment.content || '');
   };
 
   const cancelEdit = () => {
-    console.log('[ForumSection Debug] cancelEdit triggered');
     setEditingCommentId(null);
     setEditText('');
   };
 
   const submitEdit = async (comment) => {
     const trimmedText = editText.trim();
-    console.log('[ForumSection Debug] submitEdit called:', {
-      commentId: comment.id,
-      trimmedText,
-      savingEdit,
-    });
-
-    if (!trimmedText || savingEdit) {
-      console.warn('[ForumSection Debug] submitEdit aborted (empty text or already saving)');
-      return;
-    }
+    if (!trimmedText || savingEdit) return;
 
     setSavingEdit(true);
     try {
       if (handleEditComment) {
-        console.log('[ForumSection Debug] Invoking handleEditComment parent callback...');
         await handleEditComment(comment.id, trimmedText);
-        console.log('[ForumSection Debug] handleEditComment resolved successfully');
       } else {
-        console.error('[ForumSection Debug] CRITICAL: handleEditComment prop is NOT a function!', handleEditComment);
+        console.error('ForumSection: handleEditComment prop is not a function');
       }
       setEditingCommentId(null);
     } catch (error) {
-      console.error('[ForumSection Debug] Error during submitEdit execution:', error);
+      console.error('Error saving comment edit:', error);
     } finally {
       setSavingEdit(false);
     }
@@ -81,8 +56,8 @@ export default function ForumSection({
       {/* Header */}
       <View style={styles.commentHeaderRow}>
         <View style={styles.headerTitleGroup}>
-          <View style={[styles.iconBadge, { backgroundColor: DEVOTIONAL_RED + '15' }]}>
-            <MessageSquare color={DEVOTIONAL_RED} size={16} />
+          <View style={[styles.iconBadge, { backgroundColor: colors.primary + '15' }]}>
+            <MessageSquare color={colors.primary} size={16} />
           </View>
           <AppText type="bold" style={[styles.commentSectionTitle, { color: colors.text }]}>
             Community Discussion
@@ -109,28 +84,27 @@ export default function ForumSection({
         <View style={styles.inputActionRow}>
           <Pressable
             onPress={() => {
-              console.log('[ForumSection Debug] Post Comment Button Pressed');
               if (handleAddComment) {
                 handleAddComment();
               } else {
-                console.error('[ForumSection Debug] CRITICAL: handleAddComment prop is undefined');
+                console.error('ForumSection: handleAddComment prop is not a function');
               }
             }}
             disabled={submittingComment || !newComment?.trim()}
             style={({ pressed }) => [
               styles.sendButtonPill,
               {
-                backgroundColor: newComment?.trim() ? DEVOTIONAL_RED : colors.border + '60',
+                backgroundColor: newComment?.trim() ? colors.primary : colors.border + '60',
                 opacity: pressed ? 0.85 : 1,
               },
             ]}
           >
             {submittingComment ? (
-              <ActivityIndicator size="small" color="#FFF" />
+              <ActivityIndicator size="small" color={colors.onPrimary} />
             ) : (
               <View style={styles.sendButtonContent}>
-                <AppText type="bold" style={styles.sendButtonText}>Post</AppText>
-                <Send color="#FFF" size={12} style={{ marginLeft: 4 }} />
+                <AppText type="bold" style={[styles.sendButtonText, { color: colors.onPrimary }]}>Post</AppText>
+                <Send color={colors.onPrimary} size={12} style={{ marginLeft: 4 }} />
               </View>
             )}
           </Pressable>
@@ -140,12 +114,12 @@ export default function ForumSection({
       {/* Comments List */}
       {loadingComments ? (
         <View style={styles.loaderBox}>
-          <ActivityIndicator size="small" color={DEVOTIONAL_RED} />
+          <ActivityIndicator size="small" color={colors.primary} />
         </View>
       ) : comments.length === 0 ? (
         <View style={[styles.emptyCard, { backgroundColor: colors.card + '40', borderColor: colors.border + '40' }]}>
-          <View style={[styles.emptyIconCircle, { backgroundColor: DEVOTIONAL_RED + '10' }]}>
-            <MessageSquare color={DEVOTIONAL_RED} size={20} />
+          <View style={[styles.emptyIconCircle, { backgroundColor: colors.primary + '10' }]}>
+            <MessageSquare color={colors.primary} size={20} />
           </View>
           <AppText type="semibold" style={{ color: colors.text, fontSize: 15, marginTop: 10 }}>
             Start the Conversation
@@ -182,8 +156,8 @@ export default function ForumSection({
                   {avatarUrl ? (
                     <Image source={{ uri: avatarUrl }} style={styles.forumAvatar} />
                   ) : (
-                    <View style={[styles.forumAvatarPlaceholder, { backgroundColor: DEVOTIONAL_RED + '18' }]}>
-                      <AppText type="bold" style={{ color: DEVOTIONAL_RED, fontSize: 13 }}>
+                    <View style={[styles.forumAvatarPlaceholder, { backgroundColor: colors.primary + '18' }]}>
+                      <AppText type="bold" style={{ color: colors.primary, fontSize: 13 }}>
                         {authorName.charAt(0).toUpperCase()}
                       </AppText>
                     </View>
@@ -195,17 +169,17 @@ export default function ForumSection({
                 <View style={styles.forumContentColumn}>
                   {/* Header metadata row */}
                   <View style={styles.forumHeaderInline}>
-                    <AppText type="bold" style={{ color: colors.text, fontSize: 13.5 }}>
+                    <AppText type="bold" numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.text, fontSize: 13.5, flexShrink: 1 }}>
                       {authorName}
                     </AppText>
 
                     {isOwner && (
-                      <View style={[styles.youBadge, { backgroundColor: DEVOTIONAL_RED + '15' }]}>
-                        <AppText type="bold" style={{ color: DEVOTIONAL_RED, fontSize: 9 }}>YOU</AppText>
+                      <View style={[styles.youBadge, { backgroundColor: colors.primary + '15' }]}>
+                        <AppText type="bold" style={{ color: colors.primary, fontSize: 9 }}>YOU</AppText>
                       </View>
                     )}
 
-                    <AppText style={{ color: colors.textSecondary, fontSize: 11, marginLeft: 6 }}>
+                    <AppText numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 11, marginLeft: 6, flexShrink: 0 }}>
                       • {formattedTime}
                     </AppText>
 
@@ -213,10 +187,7 @@ export default function ForumSection({
                     {isOwner && !isEditingThis && (
                       <View style={styles.inlineOwnerActions}>
                         <Pressable
-                          onPress={() => {
-                            console.log('[ForumSection Debug] Edit Icon Clicked for Comment:', comment.id);
-                            startEdit(comment);
-                          }}
+                          onPress={() => startEdit(comment)}
                           hitSlop={8}
                           style={({ pressed }) => [styles.actionIconBtn, pressed && { opacity: 0.5 }]}
                         >
@@ -225,11 +196,10 @@ export default function ForumSection({
 
                         <Pressable
                           onPress={() => {
-                            console.log('[ForumSection Debug] Delete Icon Clicked for Comment:', comment.id);
                             if (handleDeleteComment) {
                               handleDeleteComment(comment.id);
                             } else {
-                              console.error('[ForumSection Debug] CRITICAL: handleDeleteComment prop is undefined!');
+                              console.error('ForumSection: handleDeleteComment prop is not a function');
                             }
                           }}
                           hitSlop={8}
@@ -260,14 +230,14 @@ export default function ForumSection({
                         <Pressable
                           onPress={() => submitEdit(comment)}
                           disabled={savingEdit || !editText.trim()}
-                          style={[styles.editSaveBtn, { backgroundColor: DEVOTIONAL_RED }]}
+                          style={[styles.editSaveBtn, { backgroundColor: colors.primary }]}
                         >
                           {savingEdit ? (
-                            <ActivityIndicator size="small" color="#FFF" />
+                            <ActivityIndicator size="small" color={colors.onPrimary} />
                           ) : (
                             <>
-                              <Check size={14} color="#FFF" />
-                              <AppText type="bold" style={{ color: '#FFF', fontSize: 12, marginLeft: 2 }}>Save</AppText>
+                              <Check size={14} color={colors.onPrimary} />
+                              <AppText type="bold" style={{ color: colors.onPrimary, fontSize: 12, marginLeft: 2 }}>Save</AppText>
                             </>
                           )}
                         </Pressable>
@@ -286,12 +256,7 @@ export default function ForumSection({
                         hitSlop={8}
                         style={styles.actionButton}
                         onPress={() => {
-                          console.log('[ForumSection Debug] Reply Button Clicked for Comment:', comment.id);
-                          if (onReplyComment) {
-                            onReplyComment(comment);
-                          } else {
-                            console.warn('[ForumSection Debug] onReplyComment prop is not passed');
-                          }
+                          if (onReplyComment) onReplyComment(comment);
                         }}
                       >
                         <CornerUpLeft size={12} color={colors.textSecondary} style={{ marginRight: 4 }} />
@@ -304,23 +269,18 @@ export default function ForumSection({
                         hitSlop={8}
                         style={[styles.actionButton, { marginLeft: 16 }]}
                         onPress={() => {
-                          console.log('[ForumSection Debug] Like Button Clicked for Comment:', comment.id);
-                          if (onLikeComment) {
-                            onLikeComment(comment.id);
-                          } else {
-                            console.warn('[ForumSection Debug] onLikeComment prop is not passed');
-                          }
+                          if (onLikeComment) onLikeComment(comment.id);
                         }}
                       >
                         <Heart
                           size={12}
-                          color={isLiked ? DEVOTIONAL_RED : colors.textSecondary}
-                          fill={isLiked ? DEVOTIONAL_RED : 'transparent'}
+                          color={isLiked ? colors.primary : colors.textSecondary}
+                          fill={isLiked ? colors.primary : 'transparent'}
                           style={{ marginRight: 4 }}
                         />
                         <AppText
                           type="semibold"
-                          style={{ color: isLiked ? DEVOTIONAL_RED : colors.textSecondary, fontSize: 12 }}
+                          style={{ color: isLiked ? colors.primary : colors.textSecondary, fontSize: 12 }}
                         >
                           {likesCount > 0 ? `${likesCount} ${likesCount === 1 ? 'Like' : 'Likes'}` : 'Like'}
                         </AppText>
@@ -399,7 +359,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sendButtonText: {
-    color: '#FFF',
     fontSize: 12,
   },
   loaderBox: {
@@ -456,6 +415,7 @@ const styles = StyleSheet.create({
   forumHeaderInline: {
     flexDirection: 'row',
     alignItems: 'center',
+    minWidth: 0,
   },
   youBadge: {
     paddingHorizontal: 5,

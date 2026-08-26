@@ -15,17 +15,16 @@ import VerseRow from './Verserow';
 import ActionSheet from './Actionsheet';
 import ChapterVersePicker from './Chapterversepicker';
 import BooksView from './Booksview';
+import { useTheme } from '../../context/ThemeContext';
 
-// Estimated rendered heights of the ActionSheet, used to nudge the scroll
-// position so a selected verse near the bottom isn't hidden underneath it.
-// Adjust these if they don't match the sheet's real height on device.
 const SHEET_HEIGHT_ESTIMATE = 260;
 const NOTE_SHEET_HEIGHT_ESTIMATE = 420;
 
-// How long the "just navigated here" highlight stays visible before fading.
 const NAV_HIGHLIGHT_DURATION_MS = 3000;
 
 export const BibleTabContent = ({ tabBarHeight = 60 }) => {
+  const { colors } = useTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
   const [activeTab, setActiveTab] = useState('books');
   const [activeVersion, setActiveVersion] = useState('KJV');
   const [activeBook, setActiveBook] = useState({ id: 1, name: 'Genesis', chapters: 50 });
@@ -86,7 +85,6 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
     runFetchScripture();
   }, [activeTab, activeBook.id, activeBook.name, activeChapter, activeVersion, runFetchScripture, resetVersePositions]);
 
-  // Clean up any pending focused-verse timer on unmount
   useEffect(() => {
     return () => {
       if (focusedVerseTimeoutRef.current) clearTimeout(focusedVerseTimeoutRef.current);
@@ -144,7 +142,6 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
   const handleNextChapter = () => { clearSelection(); setNavHighlightKey(null); const total = getCurrentBookChapters(activeBook.id); if (activeChapter < total) setActiveChapter((prev) => prev + 1); else { const idx = BIBLE_BOOKS.findIndex((b) => b.id === activeBook.id); if (idx !== -1 && idx < BIBLE_BOOKS.length - 1) { const next = BIBLE_BOOKS[idx + 1]; setActiveBook({ id: next.id, name: next.name, chapters: next.chapters }); setActiveChapter(1); } } };
   const handlePrevChapter = () => { clearSelection(); setNavHighlightKey(null); if (activeChapter > 1) setActiveChapter((prev) => prev - 1); else { const idx = BIBLE_BOOKS.findIndex((b) => b.id === activeBook.id); if (idx > 0) { const prevBook = BIBLE_BOOKS[idx - 1]; setActiveBook({ id: prevBook.id, name: prevBook.name, chapters: prevBook.chapters }); setActiveChapter(prevBook.chapters || 1); } } };
   const handleVerseSingleTap = useCallback((verse) => {
-  // If we are in selection mode, tapping toggles selection
   if (isSelectionMode) {
     const isSelected = selectedVerses.includes(verse.verse);
     const nextSelected = isSelected 
@@ -204,7 +201,6 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
     try {
       await Clipboard.setStringAsync(`${ref} (${activeVersion})\n${text}`);
     } catch (e) {
-      // Clipboard write failed; still let the UI settle back down below.
     }
     setIsCopied(true);
     setTimeout(() => {
@@ -222,7 +218,6 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
     try {
       await Share.share({ message: `${ref} (${activeVersion})\n${text}`, });
     } catch (e) {
-      // Share sheet dismissed or failed; nothing more to do.
     }
     clearSelection();
   };
@@ -255,11 +250,27 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
   setFocusedVerse(verseNum);
   scrollToVerseIfReady(verseNum);
     if (focusedVerseTimeoutRef.current) clearTimeout(focusedVerseTimeoutRef.current);
-    // FIX 3: shortened from 10s to 3s
     focusedVerseTimeoutRef.current = setTimeout(() => { setFocusedVerse(null); clearNavHighlight(); }, NAV_HIGHLIGHT_DURATION_MS);
 };
   const handleBooksSelectChapter = (chapNum) => { setSelectedChapterForVerses(chapNum); fetchWizardChapterVerseCount(selectedBookForChapters.id, chapNum, selectedBookForChapters.name); };
   const resetSelectionWizard = useCallback(() => { setSelectedBookForChapters(null); setSelectedChapterForVerses(null); resetWizardVerses(); }, [resetWizardVerses]);
+  // Lets a Notes/Saved-tab card jump the reader straight to that verse —
+  // same nav-highlight-and-scroll pattern as picking a verse from the
+  // book/chapter/verse wizard.
+  const handleNavigateToVerse = useCallback((bookName, chapter, verseNum) => {
+    const bookMeta = BIBLE_BOOKS.find((b) => b.name === bookName);
+    if (!bookMeta) return;
+    const key = getHighlightKey(bookName, chapter, verseNum);
+    setNavHighlightKey(key);
+    pendingNavHighlightRef.current = key;
+    setActiveBook({ id: bookMeta.id, name: bookMeta.name, chapters: bookMeta.chapters });
+    setActiveChapter(chapter);
+    pendingScrollVerseRef.current = verseNum;
+    setFocusedVerse(verseNum);
+    setActiveTab('read');
+    if (focusedVerseTimeoutRef.current) clearTimeout(focusedVerseTimeoutRef.current);
+    focusedVerseTimeoutRef.current = setTimeout(() => { setFocusedVerse(null); clearNavHighlight(); }, NAV_HIGHLIGHT_DURATION_MS);
+  }, [pendingScrollVerseRef, clearNavHighlight]);
   const handleBooksSelectVerse = (verseNum) => {
   const book = selectedBookForChapters;
   const chapter = selectedChapterForVerses;
@@ -276,7 +287,6 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
   resetSelectionWizard();
   setActiveTab('read');
   if (focusedVerseTimeoutRef.current) clearTimeout(focusedVerseTimeoutRef.current);
-  // FIX 3: shortened from 10s to 3s
   focusedVerseTimeoutRef.current = setTimeout(() => { setFocusedVerse(null); clearNavHighlight(); }, NAV_HIGHLIGHT_DURATION_MS);
 };
   return (
@@ -285,7 +295,10 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
         <View style={styles.topControlHeader}>
           {activeTab === 'read' ? (
             <>
-              <Pressable onPress={() => { setActiveTab('books'); resetSelectionWizard(); }} style={styles.bookSelectorLink}><AppText style={styles.mainDisplayTitle}>{activeBook.name} {activeChapter}</AppText></Pressable>
+              <Pressable onPress={() => { setActiveTab('books'); resetSelectionWizard(); }} style={({ pressed }) => [styles.bookSelectorLink, pressed && styles.bookSelectorLinkPressed]}>
+                <AppText style={styles.mainDisplayTitle}>{activeBook.name} {activeChapter}</AppText>
+                <ChevronDown size={16} color={colors.textSecondary} style={styles.bookSelectorChevron} />
+              </Pressable>
               <View style={styles.headerRightSettingsRow}>
                 <View style={styles.fontPillContainer}>
                   <Pressable onPress={async () => {
@@ -308,17 +321,26 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
                     });
                   }} disabled={storage.fontSizeScale >= FONT_MAX} style={styles.fontPillBtn} hitSlop={8}><AppText style={[styles.fontPillText, storage.fontSizeScale >= FONT_MAX && styles.disabledPillText]}>A+</AppText></Pressable>
                 </View>
-                <Pressable onPress={() => setActiveTab('versions')} style={styles.versionPillTab}><AppText style={styles.versionPillText}>{activeVersion}</AppText><ChevronDown size={10} color="#ffffff" style={styles.versionPillChevron} /></Pressable>
+                <Pressable onPress={() => setActiveTab('versions')} style={styles.versionPillTab}><AppText style={styles.versionPillText}>{activeVersion}</AppText><ChevronDown color={colors.onPrimary} size={10} style={styles.versionPillChevron} /></Pressable>
               </View>
             </>
           ) : activeTab === 'versions' ? (
-            <Pressable onPress={() => setActiveTab('read')} style={styles.backFromVersionsRow}><ChevronLeft size={22} color="#352a48" style={styles.backFromVersionsChevron} /><AppText style={styles.mainDisplayTitle}>Back</AppText></Pressable>
+            <Pressable onPress={() => setActiveTab('read')} style={styles.backFromVersionsRow}><ChevronLeft size={22} color={colors.text} style={styles.backFromVersionsChevron} /><AppText style={styles.mainDisplayTitle}>Back</AppText></Pressable>
           ) : (
             <>
-              <View style={styles.metaBreadcrumbRow}><AppText style={styles.mainDisplayTitle}>Bible</AppText></View>
+              <View style={styles.metaBreadcrumbRow}>
+                {(activeTab === 'notes' || activeTab === 'saved') ? (
+                  <Pressable onPress={() => setActiveTab('books')} style={styles.backFromVersionsRow}>
+                    <ChevronLeft size={22} color={colors.text} style={styles.backFromVersionsChevron} />
+                    <AppText style={styles.mainDisplayTitle}>Back</AppText>
+                  </Pressable>
+                ) : (
+                  <AppText style={styles.mainDisplayTitle}>Bible</AppText>
+                )}
+              </View>
               <View style={styles.headerActionButtonGroup}>
-                <Pressable onPress={() => setActiveTab(activeTab === 'notes' ? 'books' : 'notes')} style={[styles.premiumWorkspaceTab, activeTab === 'notes' && styles.premiumWorkspaceTabActive]}><FileText size={13} color={activeTab === 'notes' ? '#ffffff' : '#352a48'} style={styles.tabIcon} /><AppText style={[styles.premiumTabLabel, activeTab === 'notes' && styles.premiumTabLabelActive]}>Notes</AppText></Pressable>
-                <Pressable onPress={() => setActiveTab(activeTab === 'saved' ? 'books' : 'saved')} style={[styles.premiumWorkspaceTab, activeTab === 'saved' && styles.premiumWorkspaceTabActive]}><Star size={13} color={activeTab === 'saved' ? '#ffffff' : '#352a48'} fill={activeTab === 'saved' ? '#ffffff' : 'transparent'} style={styles.tabIcon} /><AppText style={[styles.premiumTabLabel, activeTab === 'saved' && styles.premiumTabLabelActive]}>Saved</AppText></Pressable>
+                <Pressable onPress={() => setActiveTab(activeTab === 'notes' ? 'books' : 'notes')} style={[styles.premiumWorkspaceTab, activeTab === 'notes' && styles.premiumWorkspaceTabActive]}><FileText size={13} color={activeTab === 'notes' ? colors.onPrimary : colors.text} style={styles.tabIcon} /><AppText style={[styles.premiumTabLabel, activeTab === 'notes' && styles.premiumTabLabelActive]}>Notes</AppText></Pressable>
+                <Pressable onPress={() => setActiveTab(activeTab === 'saved' ? 'books' : 'saved')} style={[styles.premiumWorkspaceTab, activeTab === 'saved' && styles.premiumWorkspaceTabActive]}><Star size={13} color={activeTab === 'saved' ? colors.onPrimary : colors.text} fill={activeTab === 'saved' ? colors.onPrimary : 'transparent'} style={styles.tabIcon} /><AppText style={[styles.premiumTabLabel, activeTab === 'saved' && styles.premiumTabLabelActive]}>Saved</AppText></Pressable>
               </View>
             </>
           )}
@@ -330,7 +352,7 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
           <View style={styles.flex1}>
             {loading ? (
               <View style={styles.loadingWrapperPane}>
-                <ActivityIndicator size="small" color="#352a48" />
+                <ActivityIndicator size="small" color={colors.text} />
                 <AppText style={styles.loadingIndicatorSubtitle}>Loading Scripture...</AppText>
               </View>
             ) : error ? (
@@ -391,9 +413,9 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
                bottomOffset={floatingNavBottom + 68 + (isEditingNote ? keyboardHeight : 0)} />
             )}
             <View style={[styles.floatingTurnPageRow, { bottom: floatingNavBottom }]}>
-              <Pressable onPress={handlePrevChapter} style={styles.turnPageCircleActionBtn}><ChevronLeft color="#352a48" size={20} strokeWidth={2.5} /></Pressable>
-              <Pressable onPress={() => { setPickerStep('chapters'); setIsPickerOpen(!isPickerOpen); }} style={styles.centerReaderPillLink}><AppText style={styles.centerReaderPillText}>Chapter {activeChapter}</AppText><ChevronDown color="#352a48" size={13} style={styles.centerReaderChevron} /></Pressable>
-              <Pressable onPress={handleNextChapter} style={styles.turnPageCircleActionBtn}><ChevronRight color="#352a48" size={20} strokeWidth={2.5} /></Pressable>
+              <Pressable onPress={handlePrevChapter} style={styles.turnPageCircleActionBtn}><ChevronLeft color={colors.text} size={20} strokeWidth={2.5} /></Pressable>
+              <Pressable onPress={() => { setPickerStep('chapters'); setIsPickerOpen(!isPickerOpen); }} style={styles.centerReaderPillLink}><AppText style={styles.centerReaderPillText}>Chapter {activeChapter}</AppText><ChevronDown color={colors.text} size={13} style={styles.centerReaderChevron} /></Pressable>
+              <Pressable onPress={handleNextChapter} style={styles.turnPageCircleActionBtn}><ChevronRight color={colors.text} size={20} strokeWidth={2.5} /></Pressable>
             </View>
             <ChapterVersePicker isOpen={isPickerOpen} bookName={activeBook.name} bookChapterCount={activeBookFull?.chapters || 50} activeChapter={activeChapter} pickerStep={pickerStep} tempSelectedChapter={tempSelectedChapter} verseCount={verses?.length > 0 ? verses.length : wizardVerses?.length > 0 ? wizardVerses.length : 30} onClose={() => setIsPickerOpen(false)} onSelectChapter={handlePickerSelectChapter} onSelectVerse={handlePickerSelectVerse} onBackToChapters={() => setPickerStep('chapters')} tabBarHeight={tabBarHeight} />
           </View>
@@ -423,8 +445,10 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
             ) : (
               Object.entries(storage.verseNotes).map(([noteKey, noteData]) => (
                 <View key={noteKey} style={styles.archiveNoteDataCard}>
-                  <View style={styles.archiveCardMetaHeader}><AppText style={[styles.archiveCardVerseTitle, !noteData.title?.trim() && styles.archiveCardVerseTitleEmpty]}>{noteData.title?.trim() || 'Untitled note'}</AppText><Pressable onPress={() => storage.removeNote(noteKey)}><Trash2 color="#ef4444" size={16} /></Pressable></View>
-                  <AppText style={styles.noteVerseRefSubtitle}>{noteData.book} {noteData.chapter}:{noteData.verse}</AppText>
+                  <View style={styles.archiveCardMetaHeader}>
+                    <AppText style={[styles.archiveCardVerseTitle, !noteData.title?.trim() && styles.archiveCardVerseTitleEmpty]}>{noteData.title?.trim() || 'Untitled note'}</AppText>
+                    <Pressable onPress={() => storage.removeNote(noteKey)} hitSlop={8}><Trash2 color={colors.primary} size={16} /></Pressable>
+                  </View>
                   <AppText style={styles.archiveCardBodyContent}>{noteData.note}</AppText><AppText style={styles.noteTimestamp}>{new Date(noteData.timestamp).toLocaleDateString()}</AppText>
                 </View>
               ))
@@ -438,13 +462,22 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
               <AppText style={styles.emptyDashboardStatusText}>No saved verses yet.</AppText>
             ) : (
               (Object.entries(storage.savedVerses || {}).map(([saveKey, saveData]) => (
-                <View key={saveKey} style={styles.archiveNoteDataCard}>
-                  <View style={styles.archiveCardMetaHeader}><AppText style={styles.archiveCardVerseTitle}>{saveData.book} {saveData.chapter}:{saveData.verse}</AppText>
-                  <Pressable onPress={() => storage.deleteSavedVerse(saveKey, saveData)}>
-                    <Trash2 color="#ef4444" size={16} />
-                  </Pressable></View>
+                <Pressable
+                  key={saveKey}
+                  onPress={() => handleNavigateToVerse(saveData.book, saveData.chapter, saveData.verse)}
+                  style={({ pressed }) => [styles.archiveNoteDataCard, pressed && styles.archiveCardPressed]}
+                >
+                  <View style={styles.archiveCardMetaHeader}>
+                    <AppText style={styles.archiveCardVerseTitle}>{saveData.book} {saveData.chapter}:{saveData.verse}</AppText>
+                    <View style={styles.archiveCardHeaderActions}>
+                      <ChevronRight color={colors.textSecondary} size={16} />
+                      <Pressable onPress={() => storage.deleteSavedVerse(saveKey, saveData)} hitSlop={8}>
+                        <Trash2 color={colors.primary} size={16} />
+                      </Pressable>
+                    </View>
+                  </View>
                   <AppText style={styles.archiveCardBodyContent}>{saveData.text}</AppText>
-                </View>
+                </Pressable>
               )))
             )}
           </ScrollView>
@@ -453,61 +486,64 @@ export const BibleTabContent = ({ tabBarHeight = 60 }) => {
     </SafeAreaView>
   );
 };
-const styles = StyleSheet.create({
+const createStyles = (colors) => StyleSheet.create({
   flex1: { flex: 1 },
   tabIcon: { marginRight: 4 },
   centerReaderChevron: { marginLeft: 4 },
   backFromVersionsRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
   backFromVersionsChevron: { marginLeft: -4 },
-  appContainer: { flex: 1, backgroundColor: '#ffffff' },
-  topControlHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 6, backgroundColor: '#ffffff' },
-  mainDisplayTitle: { fontSize: 21, color: '#352a48', letterSpacing: -0.5 },
+  appContainer: { flex: 1, backgroundColor: colors.background },
+  topControlHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 6, backgroundColor: colors.background },
+  mainDisplayTitle: { fontSize: 21, color: colors.text, letterSpacing: -0.5 },
   headerActionButtonGroup: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metaBreadcrumbRow: {},
-  premiumWorkspaceTab: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', paddingHorizontal: 10, height: 34, justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' },
-  premiumWorkspaceTabActive: { backgroundColor: '#352a48', borderColor: '#352a48' },
-  premiumTabLabel: { fontSize: 12, color: '#352a48' },
-  premiumTabLabelActive: { color: '#ffffff' },
-  headerUnderlineWidth: { height: 1, backgroundColor: '#f1f5f9', width: '100%' },
-  centralModuleWorkspace: { flex: 1, backgroundColor: '#ffffff' },
+  metaBreadcrumbRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  premiumWorkspaceTab: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceMuted, paddingHorizontal: 10, height: 34, justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: colors.border },
+  premiumWorkspaceTabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  premiumTabLabel: { fontSize: 12, color: colors.text },
+  premiumTabLabelActive: { color: colors.onPrimary },
+  headerUnderlineWidth: { height: 1, backgroundColor: colors.border, width: '100%' },
+  centralModuleWorkspace: { flex: 1, backgroundColor: colors.background },
   textCanvasLayoutPadding: { paddingHorizontal: 24, paddingTop: 0, paddingBottom: 150 },
   editorialParagraphBlock: { width: '100%' },
-  bookSelectorLink: { paddingVertical: 4 },
+  bookSelectorLink: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
+  bookSelectorLinkPressed: { opacity: 0.5 },
+  bookSelectorChevron: { marginTop: 2 },
   headerRightSettingsRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fontPillContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#6b7280', borderRadius: 20, paddingHorizontal: 12, height: 36 },
+  fontPillContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 12, height: 36 },
   fontPillBtn: { paddingHorizontal: 6, justifyContent: 'center', alignItems: 'center' },
-  fontPillText: { fontSize: 13, fontWeight: '600', color: '#000000' },
-  disabledPillText: { color: '#cbd5e1' },
-  fontPillDivider: { width: 1, height: 16, backgroundColor: '#6b7280', marginHorizontal: 8 },
-  versionPillTab: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2e2541', borderRadius: 20, paddingHorizontal: 14, height: 36 },
-  versionPillText: { fontSize: 12, color: '#ffffff', letterSpacing: 0.5 },
+  fontPillText: { fontSize: 13, fontWeight: '600', color: colors.text },
+  disabledPillText: { color: colors.textSecondary },
+  fontPillDivider: { width: 1, height: 16, backgroundColor: colors.border, marginHorizontal: 8 },
+  versionPillTab: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, borderRadius: 20, paddingHorizontal: 14, height: 36 },
+  versionPillText: { fontSize: 12, color: colors.onPrimary, letterSpacing: 0.5 },
   versionPillChevron: { marginLeft: 4, marginTop: 1 },
-  floatingTurnPageRow: { position: 'absolute', left: 16, right: 16, height: 56, backgroundColor: '#352a48', borderRadius: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, elevation: 12, zIndex: 5 },
-  turnPageCircleActionBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' },
-  centerReaderPillLink: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, height: 42, borderRadius: 21, backgroundColor: '#ffffff' },
-  centerReaderPillText: { fontSize: 13, color: '#352a48' },
+  floatingTurnPageRow: { position: 'absolute', left: 16, right: 16, height: 56, backgroundColor: colors.primary, borderRadius: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, elevation: 12, zIndex: 5 },
+  turnPageCircleActionBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
+  centerReaderPillLink: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, height: 42, borderRadius: 21, backgroundColor: colors.card },
+  centerReaderPillText: { fontSize: 13, color: colors.text },
   loadingWrapperPane: { flex: 0.8, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 32 },
-  loadingIndicatorSubtitle: { fontSize: 12, color: '#352a48' },
-  networkErrorTitle: { fontSize: 16, color: '#09090b', textAlign: 'center', marginBottom: 6 },
-  networkErrorBodyText: { fontSize: 13, color: '#352a48', textAlign: 'center', lineHeight: 20 },
-  rectRetryButton: { backgroundColor: '#352a48', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  rectRetryButtonLabel: { color: '#ffffff', fontSize: 12 },
+  loadingIndicatorSubtitle: { fontSize: 12, color: colors.text },
+  networkErrorTitle: { fontSize: 16, color: colors.text, textAlign: 'center', marginBottom: 6 },
+  networkErrorBodyText: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  rectRetryButton: { backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  rectRetryButtonLabel: { color: colors.onPrimary, fontSize: 12 },
   versionsScroll: { paddingHorizontal: 16, paddingBottom: 100 },
   versionsTitleBlock: { paddingVertical: 14 },
-  versionsTitleText: { fontSize: 21, color: '#352a48', marginBottom: 4, fontWeight: '700' },
-  versionsSubtitleText: { color: '#64748b', fontSize: 14 },
+  versionsTitleText: { fontSize: 21, color: colors.text, marginBottom: 4, fontWeight: '700' },
+  versionsSubtitleText: { color: colors.textSecondary, fontSize: 14 },
   translationsList: { marginTop: 8, gap: 10 },
-  activeTranslationCard: { borderLeftWidth: 4, borderLeftColor: '#352a48', backgroundColor: '#f5f3ff' },
-  translationCode: { color: '#352a48', fontSize: 16, fontWeight: '700' },
-  translationLabel: { color: '#64748b', fontSize: 12, marginTop: 2 },
+  activeTranslationCard: { borderLeftWidth: 4, borderLeftColor: colors.primary, backgroundColor: colors.surfaceActive },
+  translationCode: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  translationLabel: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   userDashboardArchiveScroll: { padding: 24, paddingBottom: 100 },
-  dashboardViewMainHeader: { fontSize: 20, color: '#09090b', marginBottom: 16 },
-  emptyDashboardStatusText: { fontSize: 14, color: '#a1a1aa', textAlign: 'center', marginTop: 40 },
-  noteTimestamp: { fontSize: 11, color: '#94a3b8', marginTop: 6 },
-  noteVerseRefSubtitle: { fontSize: 11, color: '#94a3b8', marginTop: -4, marginBottom: 4 },
-  archiveNoteDataCard: { backgroundColor: '#f8fafc', padding: 16, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: '#352a48', marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0' },
+  dashboardViewMainHeader: { fontSize: 20, color: colors.text, marginBottom: 16 },
+  emptyDashboardStatusText: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginTop: 40 },
+  noteTimestamp: { fontSize: 11, color: colors.textSecondary, marginTop: 6 },
+  archiveNoteDataCard: { backgroundColor: colors.surfaceMuted, padding: 16, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: colors.primary, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
+  archiveCardPressed: { opacity: 0.6 },
+  archiveCardHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   archiveCardMetaHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  archiveCardVerseTitle: { fontSize: 14, color: '#09090b' },
-  archiveCardVerseTitleEmpty: { color: '#a1a1aa', fontStyle: 'italic' },
-  archiveCardBodyContent: { fontSize: 13, color: '#352a48', lineHeight: 18 },
+  archiveCardVerseTitle: { fontSize: 14, color: colors.text },
+  archiveCardVerseTitleEmpty: { color: colors.textSecondary, fontStyle: 'italic' },
+  archiveCardBodyContent: { fontSize: 13, color: colors.text, lineHeight: 18 },
 });

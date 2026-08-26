@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { View, FlatList, TouchableOpacity, StatusBar, TextInput, KeyboardAvoidingView, RefreshControl, Image, Alert, ActionSheetIOS, Platform, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, FlatList, TouchableOpacity, StatusBar, TextInput, KeyboardAvoidingView, RefreshControl, Image, Alert, Platform, StyleSheet, ActivityIndicator, useWindowDimensions, Modal, TouchableWithoutFeedback } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChevronLeft, Send, Users, MoreVertical, MessageSquare, Pin, Trash2, Edit3, Lock, Crown, PlusCircle, Check, CheckCheck, AlertCircle, Smile, X, WifiOff } from 'lucide-react-native';
+import { ChevronLeft, Send, Users, MoreVertical, MessageSquare, Pin, Trash2, Edit3, Lock, Crown, PlusCircle, Check, CheckCheck, AlertCircle, X, WifiOff, Reply, Copy } from 'lucide-react-native';
 import { AppText } from '../../../../components/AppText';
 import { useGroupDetail } from './Usegroupdetail';
 import { GroupDropdownMenu, AnnouncementModal, MembersTab, AdminTab } from './Groupdetailpanels';
@@ -14,12 +14,12 @@ const QUICK_REACTIONS = ['👍', '❤️', '😂', '🙏'];
 
 export const GroupDetailScreen = ({ route, navigation }) => {
   const { group, currentUser } = route.params || {};
-  const [reactionPickerFor, setReactionPickerFor] = useState(null);
+  const [actionSheetMessage, setActionSheetMessage] = useState(null);
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const bubbleMaxWidth = Math.min(windowWidth * 0.78, 420);
   const { colors, isDark } = useTheme();
-  const theme = { ...colors, outgoingBubble: isDark ? '#144D37' : '#DCF8C6', incomingBubble: colors.card, incomingBorder: colors.border, dateChipBg: isDark ? '#182229' : '#E9EDEF', dateChipText: colors.textSecondary, bannerBg: isDark ? '#2A1B22' : '#FFF1F2', bannerBorder: isDark ? '#3D2530' : '#FFE4E6', overlaySubtle: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', reactionChipBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', reactionChipActiveBg: isDark ? 'rgba(225,29,72,0.25)' : '#FFE4E6', editInputBg: isDark ? colors.background : '#F0F2F5', avatarFallbackBg: colors.border, offlineBg: isDark ? '#4A3B00' : '#FFF3CD', offlineText: isDark ? '#FFD166' : '#7A5B00' };
+  const theme = { ...colors, outgoingBubble: isDark ? 'rgba(225,29,72,0.16)' : 'rgba(225,29,72,0.07)', incomingBubble: colors.card, incomingBorder: colors.border, dateChipBg: isDark ? '#182229' : '#E9EDEF', dateChipText: colors.textSecondary, bannerBg: isDark ? '#2A1B22' : '#FFF1F2', bannerBorder: isDark ? '#3D2530' : '#FFE4E6', overlaySubtle: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)', reactionChipActiveBg: isDark ? 'rgba(225,29,72,0.18)' : 'rgba(225,29,72,0.08)', editInputBg: isDark ? colors.background : '#F0F2F5', avatarFallbackBg: colors.border, offlineBg: isDark ? '#4A3B00' : '#FFF3CD', offlineText: isDark ? '#FFD166' : '#7A5B00' };
   const styles = useMemo(() => getStyles(theme), [isDark]);
 
   const {
@@ -65,6 +65,8 @@ export const GroupDetailScreen = ({ route, navigation }) => {
     if (parts.length === 0) return text;
     return parts.map((part, idx) => <AppText key={idx} style={part.mention ? styles.mentionText : undefined}>{part.text}</AppText>);
   };
+
+  const closeActionSheet = () => setActionSheetMessage(null);
 
   return (
     <View style={styles.container}>
@@ -139,7 +141,7 @@ export const GroupDetailScreen = ({ route, navigation }) => {
                 <FlatList
                   ref={flatListRef}
                   data={messages}
-                  extraData={[editingMessageId, reactionsByMessageId, reactionPickerFor, members]}
+                  extraData={[editingMessageId, reactionsByMessageId, actionSheetMessage, members]}
                   keyExtractor={(item, index) => item.id ? item.id.toString() : index.toString()}
                   contentContainerStyle={styles.messagesScroll}
                   showsVerticalScrollIndicator={false}
@@ -195,21 +197,6 @@ export const GroupDetailScreen = ({ route, navigation }) => {
                     const messageReactions = reactionsByMessageId[item.id] || [];
                     const groupedReactions = messageReactions.reduce((acc, r) => { acc[r.emoji] = (acc[r.emoji] || 0) + 1; return acc; }, {});
 
-                    const handleLongPressMessage = () => {
-                      const copyOption = { text: 'Copy Text', onPress: async () => { await Clipboard.setStringAsync(item.content); } };
-                      const replyOption = { text: 'Reply', onPress: () => startReplyingTo(item, isMe ? 'You' : authorName) };
-                      const cancelOption = { text: 'Cancel', style: 'cancel' };
-
-                      if (Platform.OS === 'ios') {
-                        ActionSheetIOS.showActionSheetWithOptions(
-                          { options: ['Cancel', 'Copy Text', 'Reply'], cancelButtonIndex: 0 },
-                          (buttonIndex) => { if (buttonIndex === 1) copyOption.onPress(); if (buttonIndex === 2) replyOption.onPress(); }
-                        );
-                      } else {
-                        Alert.alert('Message Options', '', [copyOption, replyOption, cancelOption], { cancelable: true });
-                      }
-                    };
-
                     return (
                       <View>
                         {showDateHeader && (
@@ -236,13 +223,16 @@ export const GroupDetailScreen = ({ route, navigation }) => {
                           )}
 
                           <View style={{ maxWidth: bubbleMaxWidth }}>
-                            <TouchableOpacity activeOpacity={0.9} onLongPress={handleLongPressMessage} style={[isMe ? styles.myMessageBubble : styles.peerMessageBubble, { maxWidth: undefined }]}>
+                            <TouchableOpacity
+                              activeOpacity={0.9}
+                              onLongPress={() => item.status !== 'sending' && setActionSheetMessage({ item, isMe, authorName })}
+                              style={[isMe ? styles.myMessageBubble : styles.peerMessageBubble, { maxWidth: undefined }]}
+                            >
                               {(!isMe || isAuthorAdmin) && (
                                 <View style={styles.authorRow}>
                                   {!isMe && <AppText type="bold" style={styles.messageAuthor}>{authorName}</AppText>}
                                   {isAuthorAdmin && (
                                     <View style={[styles.adminBadge, isMe && { marginLeft: 0, marginBottom: 4 }]}>
-                                      <Crown color="#FFFFFF" size={9} style={{ marginRight: 2 }} />
                                       <AppText type="bold" style={styles.adminBadgeText} maxFontSizeMultiplier={1.2}>ADMIN</AppText>
                                     </View>
                                   )}
@@ -279,29 +269,19 @@ export const GroupDetailScreen = ({ route, navigation }) => {
                                   <AppText style={[styles.messageText, isMe && styles.myMessageText]}>{renderMessageContent(item.content)}</AppText>
 
                                   {Object.keys(groupedReactions).length > 0 && (
-                                    <View style={{ flexDirection: 'row', marginTop: 4, flexWrap: 'wrap' }}>
+                                    <View style={{ flexDirection: 'row', marginTop: 6, flexWrap: 'wrap' }}>
                                       {Object.entries(groupedReactions).map(([emoji, count]) => {
                                         const reactedByMe = messageReactions.some((r) => r.emoji === emoji && r.user_id === currentUser?.id);
                                         return (
                                           <TouchableOpacity key={emoji} onPress={() => toggleReaction(item.id, emoji)} style={[styles.reactionChip, reactedByMe && styles.reactionChipActive]} accessibilityRole="button" accessibilityLabel={`${emoji} reaction, ${count} ${count === 1 ? 'person' : 'people'}. Tap to toggle your reaction.`}>
-                                            <AppText style={styles.reactionChipText} maxFontSizeMultiplier={1.3}>{emoji} {count}</AppText>
+                                            <AppText style={[styles.reactionChipText, reactedByMe && { color: theme.primary }]} maxFontSizeMultiplier={1.3}>{emoji} {count}</AppText>
                                           </TouchableOpacity>
                                         );
                                       })}
                                     </View>
                                   )}
 
-                                  {reactionPickerFor === item.id && (
-                                    <View style={styles.reactionPickerRow}>
-                                      {QUICK_REACTIONS.map((emoji) => (
-                                        <TouchableOpacity key={emoji} onPress={() => { toggleReaction(item.id, emoji); setReactionPickerFor(null); }} style={{ marginRight: 10 }} accessibilityRole="button" accessibilityLabel={`React with ${emoji}`}>
-                                          <AppText style={{ fontSize: 18 }}>{emoji}</AppText>
-                                        </TouchableOpacity>
-                                      ))}
-                                    </View>
-                                  )}
-
-                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
                                     {item.status === 'sending' ? (
                                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                         <ActivityIndicator size="small" color={theme.textSecondary} />
@@ -323,23 +303,6 @@ export const GroupDetailScreen = ({ route, navigation }) => {
                                         )}
                                       </View>
                                     )}
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 12 }}>
-                                      {item.status !== 'sending' && item.status !== 'failed' && (
-                                        <TouchableOpacity onPress={() => setReactionPickerFor(reactionPickerFor === item.id ? null : item.id)} style={{ marginRight: 10, padding: 2 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Add reaction">
-                                          <Smile color={theme.textSecondary} size={12} />
-                                        </TouchableOpacity>
-                                      )}
-                                      {isMe && item.status !== 'sending' && item.status !== 'failed' && (
-                                        <TouchableOpacity onPress={() => { setEditingMessageId(item.id); setEditMessageText(item.content); }} style={{ marginRight: 10, padding: 2 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Edit message">
-                                          <Edit3 color={theme.textSecondary} size={12} />
-                                        </TouchableOpacity>
-                                      )}
-                                      {(isMe || isAdmin) && item.status !== 'sending' && item.status !== 'failed' && (
-                                        <TouchableOpacity onPress={() => handleDeleteMessage(item.id, false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Delete message">
-                                          <Trash2 color={theme.textSecondary} size={12} />
-                                        </TouchableOpacity>
-                                      )}
-                                    </View>
                                   </View>
                                 </>
                               )}
@@ -512,6 +475,52 @@ export const GroupDetailScreen = ({ route, navigation }) => {
       )}
 
       <AnnouncementModal visible={showAnnouncementModal} onClose={() => setShowAnnouncementModal(false)} text={announcementText} onChangeText={setAnnouncementText} onPost={handlePostAnnouncement} isPosting={isPostingAnnouncement} />
+
+      <Modal visible={!!actionSheetMessage} transparent animationType="fade" onRequestClose={closeActionSheet}>
+        <TouchableWithoutFeedback onPress={closeActionSheet}>
+          <View style={styles.actionSheetOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.actionSheetContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                <View style={styles.actionSheetHandle} />
+
+                <View style={styles.actionSheetReactionRow}>
+                  {QUICK_REACTIONS.map((emoji) => (
+                    <TouchableOpacity key={emoji} onPress={() => { toggleReaction(actionSheetMessage?.item.id, emoji); closeActionSheet(); }} style={styles.actionSheetReactionButton} accessibilityRole="button" accessibilityLabel={`React with ${emoji}`}>
+                      <AppText style={styles.actionSheetReactionEmoji}>{emoji}</AppText>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <View style={styles.actionSheetDivider} />
+
+                <TouchableOpacity style={styles.actionSheetItem} onPress={() => { startReplyingTo(actionSheetMessage.item, actionSheetMessage.isMe ? 'You' : actionSheetMessage.authorName); closeActionSheet(); }} accessibilityRole="button" accessibilityLabel="Reply">
+                  <Reply color={theme.text} size={18} />
+                  <AppText style={styles.actionSheetItemText}>Reply</AppText>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.actionSheetItem} onPress={async () => { await Clipboard.setStringAsync(actionSheetMessage.item.content); closeActionSheet(); }} accessibilityRole="button" accessibilityLabel="Copy text">
+                  <Copy color={theme.text} size={18} />
+                  <AppText style={styles.actionSheetItemText}>Copy Text</AppText>
+                </TouchableOpacity>
+
+                {actionSheetMessage?.isMe && (
+                  <TouchableOpacity style={styles.actionSheetItem} onPress={() => { setEditingMessageId(actionSheetMessage.item.id); setEditMessageText(actionSheetMessage.item.content); closeActionSheet(); }} accessibilityRole="button" accessibilityLabel="Edit message">
+                    <Edit3 color={theme.text} size={18} />
+                    <AppText style={styles.actionSheetItemText}>Edit</AppText>
+                  </TouchableOpacity>
+                )}
+
+                {(actionSheetMessage?.isMe || isAdmin) && (
+                  <TouchableOpacity style={styles.actionSheetItem} onPress={() => { const messageId = actionSheetMessage.item.id; closeActionSheet(); handleDeleteMessage(messageId, false); }} accessibilityRole="button" accessibilityLabel="Delete message">
+                    <Trash2 color="#D14343" size={18} />
+                    <AppText style={[styles.actionSheetItemText, styles.actionSheetItemDanger]}>Delete</AppText>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 };
@@ -540,42 +549,41 @@ const getStyles = (theme) => StyleSheet.create({
   tabText: { fontSize: 13, color: '#94A3B8', marginLeft: 6 },
   activeTabText: { color: theme.primary },
   mainLayer: { flex: 1, backgroundColor: theme.background, borderTopLeftRadius: 36, borderTopRightRadius: 36, overflow: 'hidden', paddingTop: 12, zIndex: 1 },
-  messagesScroll: { paddingHorizontal: 14, paddingBottom: 16, paddingTop: 8 },
+  messagesScroll: { paddingHorizontal: 16, paddingBottom: 16, paddingTop: 8 },
   groupHeaderBanner: { backgroundColor: theme.bannerBg, borderRadius: 24, padding: 22, alignItems: 'center', marginBottom: 24, borderWidth: 1, borderColor: theme.bannerBorder },
   bannerIconCircle: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.card, justifyContent: 'center', alignItems: 'center', marginBottom: 12, overflow: 'hidden' },
   bannerTitle: { fontSize: 18, color: theme.text, textAlign: 'center', marginBottom: 6 },
   bannerDesc: { fontSize: 13, color: theme.textSecondary, textAlign: 'center', lineHeight: 20 },
   emptyContainer: { paddingVertical: 50, alignItems: 'center', justifyContent: 'center' },
   emptyText: { color: theme.textSecondary, fontSize: 14, textAlign: 'center', fontStyle: 'italic' },
-  messageRow: { flexDirection: 'row', marginBottom: 4, alignItems: 'flex-end' },
+  messageRow: { flexDirection: 'row', marginBottom: 10, alignItems: 'flex-end' },
   myMessageRow: { justifyContent: 'flex-end' },
-  messageAvatarContainer: { marginRight: 6, marginBottom: 2 },
+  messageAvatarContainer: { marginRight: 8, marginBottom: 2 },
   messageAvatar: { width: 26, height: 26, borderRadius: 13 },
   messageAvatarFallback: { width: 26, height: 26, borderRadius: 13, backgroundColor: theme.avatarFallbackBg, justifyContent: 'center', alignItems: 'center' },
   avatarFallbackText: { fontSize: 11, color: theme.text },
-  myMessageBubble: { backgroundColor: theme.outgoingBubble, borderRadius: 10, borderTopRightRadius: 3, paddingVertical: 7, paddingHorizontal: 10 },
-  peerMessageBubble: { backgroundColor: theme.incomingBubble, borderRadius: 10, borderTopLeftRadius: 3, paddingVertical: 7, paddingHorizontal: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.incomingBorder },
-  chatDateDivider: { alignItems: 'center', marginVertical: 12 },
+  myMessageBubble: { backgroundColor: theme.outgoingBubble, borderRadius: 15, paddingVertical: 5, paddingHorizontal: 14 },
+  peerMessageBubble: { backgroundColor: theme.incomingBubble, borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.incomingBorder },
+  chatDateDivider: { alignItems: 'center', marginVertical: 14 },
   chatDateBubble: { backgroundColor: theme.dateChipBg, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 },
   chatDateText: { color: theme.dateChipText, fontSize: 10, letterSpacing: 1 },
   editMessageInput: { backgroundColor: theme.editInputBg, borderRadius: 8, color: theme.text, padding: 8, fontSize: 14, minHeight: 50, textAlignVertical: 'top' },
-  authorRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
-  messageAuthor: { fontSize: 11, color: theme.primary, marginRight: 6 },
-  adminBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.primary, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  adminBadgeText: { fontSize: 8, color: '#FFFFFF', letterSpacing: 0.5 },
-  messageText: { fontSize: 14, color: theme.text, lineHeight: 19 },
+  authorRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  messageAuthor: { fontSize: 12, color: theme.primary, marginRight: 6, letterSpacing: 0.1 },
+  adminBadge: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.primary, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+  adminBadgeText: { fontSize: 8, color: theme.primary, letterSpacing: 0.5 },
+  messageText: { fontSize: 15, color: theme.text, lineHeight: 21, letterSpacing: 0.1 },
   myMessageText: { color: theme.text },
   mentionText: { color: theme.primary, fontWeight: '700' },
-  messageTime: { fontSize: 9, color: theme.textSecondary, marginTop: 2 },
+  messageTime: { fontSize: 10, color: theme.textSecondary, letterSpacing: 0.2 },
   myMessageTime: { color: theme.textSecondary },
-  failedText: { fontSize: 9, color: '#D14343', marginLeft: 4 },
-  quotedReplyBox: { backgroundColor: theme.overlaySubtle, borderLeftWidth: 3, borderLeftColor: theme.primary, borderRadius: 4, paddingVertical: 4, paddingHorizontal: 8, marginBottom: 6 },
+  failedText: { fontSize: 10, color: '#D14343', marginLeft: 4 },
+  quotedReplyBox: { backgroundColor: theme.overlaySubtle, borderLeftWidth: 2, borderLeftColor: theme.primary, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 8, marginBottom: 8 },
   quotedReplyAuthor: { fontSize: 10, color: theme.primary },
   quotedReplyText: { fontSize: 11, color: theme.textSecondary },
-  reactionChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.reactionChipBg, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, marginRight: 4, marginTop: 2 },
-  reactionChipActive: { backgroundColor: theme.reactionChipActiveBg, borderWidth: 1, borderColor: theme.primary },
-  reactionChipText: { fontSize: 11, color: theme.text },
-  reactionPickerRow: { flexDirection: 'row', backgroundColor: theme.card, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, marginTop: 6, alignSelf: 'flex-start', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, elevation: 3, borderWidth: 1, borderColor: theme.border },
+  reactionChip: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, marginRight: 6, marginTop: 4 },
+  reactionChipActive: { backgroundColor: theme.reactionChipActiveBg, borderColor: theme.primary },
+  reactionChipText: { fontSize: 12, color: theme.text },
   typingIndicatorBar: { paddingHorizontal: 20, paddingVertical: 4 },
   typingIndicatorText: { fontSize: 11, color: theme.textSecondary, fontStyle: 'italic' },
   replyPreviewBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.editInputBg, paddingHorizontal: 16, paddingVertical: 8, borderTopWidth: 1, borderTopColor: theme.border },
@@ -603,4 +611,14 @@ const getStyles = (theme) => StyleSheet.create({
   joinDiscussionButton: { backgroundColor: theme.primary, paddingVertical: 12, paddingHorizontal: 28, borderRadius: 8 },
   joinDiscussionText: { color: '#FFFFFF', fontSize: 14 },
   editAnnouncementInput: { backgroundColor: theme.editInputBg, borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 10, fontSize: 15, minHeight: 70, textAlignVertical: 'top', color: theme.text },
+  actionSheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  actionSheetContainer: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, paddingHorizontal: 8 },
+  actionSheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border, alignSelf: 'center', marginBottom: 16 },
+  actionSheetReactionRow: { flexDirection: 'row', justifyContent: 'space-evenly', paddingHorizontal: 16, paddingBottom: 16 },
+  actionSheetReactionButton: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  actionSheetReactionEmoji: { fontSize: 24 },
+  actionSheetDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.border, marginBottom: 8 },
+  actionSheetItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12 },
+  actionSheetItemText: { fontSize: 15, color: theme.text, marginLeft: 14 },
+  actionSheetItemDanger: { color: '#D14343' },
 });

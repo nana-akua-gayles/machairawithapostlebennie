@@ -243,11 +243,8 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
           setMembers((prev) => prev.map((m) => (m.user_id === payload.new.user_id ? { ...m, ...payload.new } : m)));
         }
       )
-      // No group_id column on message_reactions, so this listens broadly and
-      // filters client-side against already-loaded messages. Fine at this
-      // scale — revisit with a scoped broadcast channel if it becomes a
-      // bottleneck.
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' },
+
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions', filter: `group_id=eq.${group.id}` },
         (payload) => {
           const record = payload.new || payload.old;
           if (!record) return;
@@ -682,7 +679,7 @@ export const useGroupDetail = ({ group, currentUser, navigation }) => {
       } else {
         const { data, error } = await supabase
           .from('message_reactions')
-          .insert([{ message_id: messageId, user_id: currentUser.id, emoji }])
+          .insert([{ message_id: messageId, user_id: currentUser.id, emoji, group_id: group.id }])
           .select()
           .single();
         if (error) throw error;

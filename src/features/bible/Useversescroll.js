@@ -54,11 +54,6 @@ export const useVerseScroll = () => {
     }
   }, []);
 
-  // Call when navigating to a different chapter/book so stale y-positions
-  // from the previous chapter can't be matched against new scroll offsets.
-  // Deliberately does NOT touch pendingScrollVerseRef: a caller may have just
-  // set it (e.g. jumping to a verse in a chapter that's about to load), and
-  // that target needs to survive until the new chapter's verses lay out.
   const resetVersePositions = useCallback(() => {
     versePositionsRef.current = {};
   }, []);

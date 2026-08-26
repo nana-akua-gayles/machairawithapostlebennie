@@ -12,8 +12,6 @@ const systemFonts = [
   'Montserrat-Black',
 ];
 
-const DEVOTIONAL_RED = '#DC2626';
-
 export default function DevotionalViewer({
   htmlContent,
   title,
@@ -21,7 +19,8 @@ export default function DevotionalViewer({
   onInternalLinkPress,
 }) {
   const { width } = useWindowDimensions();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const accentColor = isDark ? colors.text : colors.primary;
 
   const baseStyle = useMemo(
     () => ({
@@ -36,14 +35,14 @@ export default function DevotionalViewer({
   const tagsStyles = useMemo(
     () => ({
       a: {
-        color: DEVOTIONAL_RED,
+        color: colors.primary,
         textDecorationLine: 'underline',
         fontFamily: 'Montserrat-SemiBold',
       },
       blockquote: {
         borderLeftWidth: 4,
-        borderLeftColor: DEVOTIONAL_RED,
-        backgroundColor: '#FFF5F5',
+        borderLeftColor: colors.primary,
+        backgroundColor: colors.surfaceMuted,
         paddingVertical: 10,
         paddingLeft: 14,
         paddingRight: 10,
@@ -72,20 +71,20 @@ export default function DevotionalViewer({
     () => ({
       keyverse: {
         borderLeftWidth: 0,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: colors.surfaceMuted,
         paddingVertical: 18,
         paddingHorizontal: 16,
         marginBottom: 26,
         alignItems: 'center',
         borderBottomWidth: 2,
-        color: DEVOTIONAL_RED,
+        color: accentColor,
       },
       'keyverse-text': {
         fontFamily: 'Montserrat-SemiBold',
         fontSize: baseFontSize * 1,
         lineHeight: baseFontSize * 1.6,
         textAlign: 'center',
-        color: DEVOTIONAL_RED,
+        color: accentColor,
       },
       'keyverse-ref': {
         fontFamily: 'Montserrat-Bold',
@@ -94,7 +93,7 @@ export default function DevotionalViewer({
         marginTop: 8,
       },
       footer: {
-        backgroundColor: colors.surface ?? '#F7F7F7',
+        backgroundColor: colors.surfaceMuted,
         borderRadius: 10,
         paddingVertical: 16,
         paddingHorizontal: 16,
@@ -103,19 +102,19 @@ export default function DevotionalViewer({
       footerLabel: {
         fontFamily: 'Montserrat-Bold',
         fontSize: baseFontSize * 0.85,
-        color: DEVOTIONAL_RED,
+        color: accentColor,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
       },
       closing: {
         fontFamily: 'Montserrat-Bold',
         fontSize: baseFontSize,
-        color: DEVOTIONAL_RED,
+        color: accentColor,
         textAlign: 'center',
         marginTop: 12,
       },
     }),
-    [colors, baseFontSize]
+    [colors, accentColor, baseFontSize]
   );
 
   const handleLinkPress = useCallback(

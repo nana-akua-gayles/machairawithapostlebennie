@@ -26,6 +26,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize",
       "package": "com.nanaakuagayles.machaira",
       "queries": [
         {
@@ -41,7 +42,8 @@
       "expo-web-browser",
       "expo-secure-store",
       "expo-video",
-      "expo-audio"
+      "expo-audio",
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {

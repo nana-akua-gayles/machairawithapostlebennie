@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { Search, X, ChevronLeft } from 'lucide-react-native';
+import { useTheme } from '../../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
@@ -20,14 +21,15 @@ const BooksView = memo(({
   onSelectBook, onSelectChapter, onSelectVerse, onBackFromChapters, onBackFromVerses,
   tabBarHeight = 60,
 }) => {
+  const { colors } = useTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
 
-  // ── VERSE GRID ────────────────────────────────
   if (selectedBook && selectedChapter) {
     return (
       <View style={styles.container}>
         <View style={styles.drillHeader}>
           <Pressable onPress={onBackFromVerses} style={styles.backPill} hitSlop={8}>
-            <ChevronLeft size={16} color="#ffffff" />
+            <ChevronLeft size={16} color={colors.onPrimary} />
             <AppText style={styles.backPillText}>Back</AppText>
           </Pressable>
           <AppText style={styles.drillBookTitle}>
@@ -39,7 +41,7 @@ const BooksView = memo(({
 
         {wizardVersesLoading ? (
           <View style={styles.centered}>
-            <ActivityIndicator size="small" color="#352a48" />
+            <ActivityIndicator size="small" color={colors.text} />
           </View>
         ) : (
           <FlatList
@@ -61,7 +63,6 @@ const BooksView = memo(({
     );
   }
 
-  // ── CHAPTER GRID ──────────────────────────────
   if (selectedBook) {
     const chapterCount = selectedBook.chapters ?? 50;
     const chapters = Array.from({ length: chapterCount }, (_, i) => i + 1);
@@ -70,7 +71,7 @@ const BooksView = memo(({
       <View style={styles.container}>
         <View style={styles.drillHeader}>
           <Pressable onPress={onBackFromChapters} style={styles.backPill} hitSlop={8}>
-            <ChevronLeft size={16} color="#ffffff" />
+            <ChevronLeft size={16} color={colors.onPrimary} />
             <AppText style={styles.backPillText}>Back</AppText>
           </Pressable>
           <AppText style={styles.drillBookTitle}>{selectedBook.name}</AppText>
@@ -116,18 +117,18 @@ const BooksView = memo(({
   return (
     <View style={styles.container}>
       <View style={styles.searchBar}>
-        <Search color="#352a48" size={16} />
+        <Search color={colors.text} size={16} />
         <TextInput
           style={styles.searchInput}
           value={searchQuery}
           onChangeText={onSearchChange}
           placeholder="Search books..."
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={colors.textSecondary}
           autoCapitalize="none"
         />
         {searchQuery.length > 0 && (
           <Pressable onPress={onSearchClear} hitSlop={8}>
-            <X color="#94a3b8" size={16} />
+            <X color={colors.textSecondary} size={16} />
           </Pressable>
         )}
       </View>
@@ -193,23 +194,23 @@ const CELL_MARGIN  = 4;
 const GRID_PADDING = 16;
 const CELL_SIZE    = (width - GRID_PADDING * 2 - CELL_MARGIN * 2 * 5) / 5;
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+const createStyles = (colors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centered:  { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
 
   // ── Search bar ─────────────────────────────────
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.surfaceMuted,
     margin: 16,
     paddingHorizontal: 14,
     height: 44,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#352a48',
+    borderColor: colors.cardBorderAccent,
   },
-  searchInput: { flex: 1, marginLeft: 8, fontSize: 14, color: '#000' },
+  searchInput: { flex: 1, marginLeft: 8, fontSize: 14, color: colors.text },
 
   // ── Section list ───────────────────────────────
   listContent: { paddingHorizontal: 12, paddingBottom: 40 },
@@ -228,19 +229,19 @@ const styles = StyleSheet.create({
   testamentTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#352a48',
+    color: colors.text,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   testamentSubtitle: {
     fontSize: 11,
-    color: '#94a3b8',
+    color: colors.textSecondary,
     marginTop: 1,
   },
   testamentDividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: colors.border,
   },
 
   // ── Book cards ─────────────────────────────────
@@ -253,17 +254,17 @@ const styles = StyleSheet.create({
     margin: CARD_MARGIN,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#f5f3ff',
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#352a48',
+    borderColor: colors.cardBorderAccent,
   },
   bookCardPlaceholder: {
     width: CARD_WIDTH,
     margin: CARD_MARGIN,
   },
-  bookTitle:    { fontSize: 15, fontWeight: '700', color: '#352a48' },
-  bookSubtitle: { fontSize: 11, color: '#64748b', marginTop: 4 },
-  emptyText:    { color: '#94a3b8' },
+  bookTitle:    { fontSize: 15, fontWeight: '700', color: colors.text },
+  bookSubtitle: { fontSize: 11, color: colors.textSecondary, marginTop: 4 },
+  emptyText:    { color: colors.textSecondary },
 
   // ── Drill-down header ──────────────────────────
   drillHeader: {
@@ -277,17 +278,17 @@ const styles = StyleSheet.create({
   backPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#352a48',
+    backgroundColor: colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 24,
     gap: 4,
   },
-  backPillText:   { fontSize: 14, color: '#ffffff', fontWeight: '600' },
+  backPillText:   { fontSize: 14, color: colors.onPrimary, fontWeight: '600' },
   drillBookTitle: {
     fontSize: 21,
     fontWeight: '800',
-    color: '#352a48',
+    color: colors.text,
     letterSpacing: -0.5,
   },
 
@@ -295,7 +296,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#09090b',
+    color: colors.text,
     paddingHorizontal: 20,
     paddingBottom: 12,
   },
@@ -310,13 +311,13 @@ const styles = StyleSheet.create({
     height: CELL_SIZE,
     margin: CELL_MARGIN,
     borderRadius: 12,
-    backgroundColor: '#f5f3ff',
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#c4b5fd',
+    borderColor: colors.cardBorderAccent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cellText: { fontSize: 15, color: '#352a48', fontWeight: '600' },
+  cellText: { fontSize: 15, color: colors.text, fontWeight: '600' },
 });
 
 export default BooksView;

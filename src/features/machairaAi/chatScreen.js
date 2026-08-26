@@ -1,16 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
-import { View, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity, FlatList, Keyboard, ActivityIndicator } from 'react-native';
-import { Sparkles, ArrowUp, BookOpen, Heart, Calendar, MessageCircle, Lightbulb, Zap, X, SlidersHorizontal } from 'lucide-react-native';
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
+import { View, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity, FlatList, Keyboard, ActivityIndicator, Image, useWindowDimensions } from 'react-native';
+import { ArrowUp, BookOpen, Heart, Calendar, MessageCircle, Lightbulb, Zap, X, SlidersHorizontal, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useFocusEffect } from '@react-navigation/native';
-import { createClient } from '@supabase/supabase-js';
 import { AppText } from '../../components/AppText';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import { supabase } from '../../config/supabaseClient';
-
 
 const MAX_STORED_MESSAGES = 20;
 const REQUEST_TIMEOUT_MS = 20000;
@@ -75,10 +73,28 @@ const MessageItem = memo(({ item: msg, index, isSelected, isMultiSelectMode, col
 
   return (
     <View style={[styles.messageRow, isUser ? styles.userRow : styles.aiRow]}>
+      {isMultiSelectMode && (
+        <TouchableOpacity
+          onPress={() => onPress && onPress(index)}
+          style={[
+            styles.selectionCheckbox,
+            {
+              borderColor: isSelected ? '#ff5252' : colors.border,
+              backgroundColor: isSelected ? '#ff5252' : 'transparent',
+            }
+          ]}
+        >
+          {isSelected && <View style={styles.checkboxInner} />}
+        </TouchableOpacity>
+      )}
+
       {!isUser && (
-        <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
-          <Sparkles size={16} color="#FFF" />
-        </View>
+        <Image
+          source={require('../../../assets/images/MacAi2.png')}
+          style={styles.avatarImage}
+          resizeMode="contain"
+          fadeDuration={0}
+        />
       )}
 
       <TouchableOpacity
@@ -93,12 +109,6 @@ const MessageItem = memo(({ item: msg, index, isSelected, isMultiSelectMode, col
           isMultiSelectMode && isSelected && { borderColor: '#ff5252', borderWidth: 2 }
         ]}
       >
-        {isMultiSelectMode && (
-          <View style={[styles.checkboxContainer, { borderColor: isSelected ? '#ff5252' : colors.border, backgroundColor: isSelected ? '#ff5252' : 'transparent' }]}>
-            {isSelected && <View style={styles.checkboxInner} />}
-          </View>
-        )}
-
         {!isUser && (
           <View style={[styles.aiHeaderTag, { borderBottomColor: colors.border }]}>
             <AppText type="bold" style={{ color: colors.primary, fontSize: 12 }}>MACHAIRA AI</AppText>
@@ -129,6 +139,13 @@ export default function AIChatScreen({ navigation }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  const { width: screenWidth } = useWindowDimensions();
+
+  const heroImageSize = useMemo(() => ({
+    width: Math.min(screenWidth * 0.28, 140),
+    height: Math.min(screenWidth * 0.28, 140) * 1.22,
+  }), [screenWidth]);
+
   const [input, setInput] = useState('');
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -143,7 +160,13 @@ export default function AIChatScreen({ navigation }) {
   const [currentUserId, setCurrentUserId] = useState('guest');
   const [responseStyle, setResponseStyle] = useState('standard');
   const [showStylePicker, setShowStylePicker] = useState(false);
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const usedEpisodeIdsRef = useRef(new Set());
+
+  // Tracks the previously loaded user so we can tell a real account switch
+  // apart from the very first load of the screen (where messages is
+  // already empty, so clearing it again would just reintroduce flicker).
+  const previousUserIdRef = useRef(null);
 
   const isMountedRef = useRef(true);
 
@@ -169,7 +192,6 @@ export default function AIChatScreen({ navigation }) {
     }
   };
 
-  
   const loadResponseStyle = async (uid) => {
     try {
       if (uid !== 'guest' && supabase) {
@@ -209,25 +231,34 @@ export default function AIChatScreen({ navigation }) {
 
   const loadUserDataForUser = async (uid) => {
     try {
+      // Only true when a different, already-loaded user is being swapped in
+      // (not on the screen's very first load, where previousUserIdRef is null).
+      const isRealUserSwitch = previousUserIdRef.current !== null && previousUserIdRef.current !== uid;
+      previousUserIdRef.current = uid;
+
       setCurrentUserId(uid);
-      setUserName(null);
-      setAwaitingName(false);
-      setMessages([]);
       setSelectedMessageIndex(null);
       setEditingIndex(null);
       setIsMultiSelectMode(false);
       setSelectedMessageIndices([]);
+      setShowClearAllConfirm(false);
       usedEpisodeIdsRef.current.clear();
+
+      if (isRealUserSwitch) {
+        // Prevents the previous account's messages from being visible even
+        // briefly while the new account's data loads.
+        setMessages([]);
+        setUserName(null);
+        setAwaitingName(false);
+      }
 
       await loadResponseStyle(uid);
       if (!isMountedRef.current) return;
 
       const savedName = await AsyncStorage.getItem(getUserNameKey(uid));
-      if (!isMountedRef.current) return; 
-      if (savedName) {
-        setUserName(savedName);
-        setAwaitingName(false);
-      } else {
+      if (!isMountedRef.current) return;
+
+      if (!savedName) {
         setUserName(null);
         setAwaitingName(true);
         setMessages([{
@@ -238,8 +269,12 @@ export default function AIChatScreen({ navigation }) {
         return;
       }
 
+      setUserName(savedName);
+      setAwaitingName(false);
+
       const savedData = await AsyncStorage.getItem(getChatHistoryKey(uid));
       if (!isMountedRef.current) return;
+
       if (savedData) {
         const parsedData = JSON.parse(savedData);
         const now = new Date().getTime();
@@ -319,14 +354,14 @@ export default function AIChatScreen({ navigation }) {
     if (messages.length > 0) scrollToEnd(true);
   }, [messages.length, loading]);
 
-  const companionPrompts = [
+  const companionPrompts = useMemo(() => [
     { label: 'Deep Exegesis & Truth', icon: <BookOpen size={20} color={colors.primary} /> },
     { label: 'Walk in Grace & Power', icon: <Heart size={20} color={colors.primary} /> },
     { label: 'Morning Fellowship', icon: <Calendar size={20} color={colors.primary} /> },
     { label: 'Apostolic Wisdom', icon: <Lightbulb size={20} color={colors.primary} /> },
     { label: 'Navigating Doubts', icon: <MessageCircle size={20} color={colors.primary} /> },
     { label: 'Fresh Revelation', icon: <Zap size={20} color={colors.primary} /> },
-  ];
+  ], [colors.primary]);
 
   const handleMessageLongPress = useCallback((index) => {
     Keyboard.dismiss();
@@ -340,6 +375,15 @@ export default function AIChatScreen({ navigation }) {
       );
     }
   }, [isMultiSelectMode]);
+
+  const handleClearAllMessages = useCallback(async () => {
+    setMessages([]);
+    setShowClearAllConfirm(false);
+    setIsMultiSelectMode(false);
+    setSelectedMessageIndices([]);
+    setSelectedMessageIndex(null);
+    await AsyncStorage.removeItem(getChatHistoryKey(currentUserId));
+  }, [currentUserId]);
 
   const handleSendMessage = async (textToSend) => {
     const question = textToSend || input;
@@ -500,9 +544,10 @@ export default function AIChatScreen({ navigation }) {
       ]);
     } finally {
       if (isMountedRef.current) {
-      setLoading(false);
+        setLoading(false);
+      }
     }
-  }}
+  };
 
   const renderItem = useCallback(({ item, index }) => (
     <MessageItem
@@ -517,9 +562,14 @@ export default function AIChatScreen({ navigation }) {
     />
   ), [selectedMessageIndices, isMultiSelectMode, colors, userName, handleMessageLongPress, handleMessagePress]);
 
-  const renderEmptyComponent = () => (
+  const renderEmptyComponent = useCallback(() => (
     <View style={styles.heroContainer}>
-      <Sparkles size={48} color={colors.primary} style={{ marginBottom: 20 }} />
+      <Image
+        source={require('../../../assets/images/MacAi2.png')}
+        style={[styles.heroImage, heroImageSize]}
+        resizeMode="contain"
+        fadeDuration={0}
+      />
       <AppText type="bold" style={[styles.title, { color: colors.text }]}>SHALOM, BELOVED !</AppText>
       <AppText style={[styles.subtitle, { color: colors.textSecondary }]}>
         Step into deep fellowship, revelation, and uncompromised truth.
@@ -538,21 +588,25 @@ export default function AIChatScreen({ navigation }) {
         ))}
       </View>
     </View>
-  );
+  ), [colors, heroImageSize, companionPrompts]);
 
-  const renderFooter = () => {
+  const renderFooter = useCallback(() => {
     if (!loading) return null;
     return (
       <View style={[styles.messageRow, styles.aiRow]}>
-        <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
-          <Sparkles size={16} color="#FFF" />
-        </View>
+        <Image
+          source={require('../../../assets/images/MacAi2.png')}
+          style={styles.avatarImage}
+          resizeMode="contain"
+          fadeDuration={0}
+        />
         <View style={[styles.messageBubble, styles.aiBubble, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
           <ActivityIndicator size="small" color={colors.primary} />
         </View>
       </View>
     );
-  };
+  }, [loading, colors]);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
 
@@ -592,10 +646,19 @@ export default function AIChatScreen({ navigation }) {
           >
             <AppText type="semiBold" style={{ color: '#ff5252', fontSize: 15 }}>Delete</AppText>
           </TouchableOpacity>
+        ) : isMultiSelectMode ? (
+          <View style={{ width: 40 }} />
         ) : (
-          <TouchableOpacity style={styles.backBtn} onPress={() => setShowStylePicker(true)}>
-            <SlidersHorizontal color={colors.text} size={20} />
-          </TouchableOpacity>
+          <View style={styles.headerRightGroup}>
+            {messages.length > 0 && (
+              <TouchableOpacity style={styles.backBtn} onPress={() => setShowClearAllConfirm(true)}>
+                <Trash2 color={colors.text} size={19} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.backBtn} onPress={() => setShowStylePicker(true)}>
+              <SlidersHorizontal color={colors.text} size={20} />
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -614,13 +677,11 @@ export default function AIChatScreen({ navigation }) {
         windowSize={10}
         initialNumToRender={12}
         removeClippedSubviews={Platform.OS === 'android'}
-        onContentSizeChange={() => scrollToEnd(false)}
         inverted={false}
       />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={[styles.inputWrapper, {
           backgroundColor: colors.background,
@@ -664,6 +725,34 @@ export default function AIChatScreen({ navigation }) {
                 </AppText>
               </TouchableOpacity>
             ))}
+          </View>
+        </View>
+      )}
+
+      {/* Clear all messages confirmation */}
+      {showClearAllConfirm && (
+        <View style={[styles.actionModalOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setShowClearAllConfirm(false)} />
+          <View style={[styles.actionSheetContainer, { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: tabBarHeight + 24 }]}>
+            <View style={[styles.actionSheetIndicator, { backgroundColor: colors.border }]} />
+            <AppText type="semiBold" style={[styles.actionSheetTitle, { color: colors.text }]}>Clear all messages?</AppText>
+            <AppText style={{ color: colors.textSecondary, textAlign: 'center', paddingHorizontal: 16, marginBottom: 8, fontSize: 14 }}>
+              This can't be undone.
+            </AppText>
+
+            <TouchableOpacity
+              style={[styles.actionSheetOption, { borderBottomColor: colors.border }]}
+              onPress={handleClearAllMessages}
+            >
+              <AppText style={{ color: '#ff5252', fontSize: 16 }}>Clear All Messages</AppText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionSheetOption}
+              onPress={() => setShowClearAllConfirm(false)}
+            >
+              <AppText style={{ color: colors.text, fontSize: 16 }}>Cancel</AppText>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -738,6 +827,7 @@ export default function AIChatScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { height: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, borderBottomWidth: 1 },
+  headerRightGroup: { flexDirection: 'row', alignItems: 'center' },
   backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   headerDeleteBtn: { height: 40, justifyContent: 'center', alignItems: 'flex-end', paddingHorizontal: 4 },
   scrollContent: { flexGrow: 1, padding: 20 },
@@ -751,11 +841,13 @@ const styles = StyleSheet.create({
   userRow: { justifyContent: 'flex-end' },
   aiRow: { justifyContent: 'flex-start' },
   avatarContainer: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  avatarImage: { width: 30, height: 50, borderRadius: 10 },
+  heroImage: { marginBottom: 15 },
   messageBubble: { padding: 16, borderRadius: 16, maxWidth: '82%', position: 'relative' },
-  userBubble: { alignSelf: 'flex-end', borderBottomRightRadius: 4, },
+  userBubble: { alignSelf: 'flex-end', borderBottomRightRadius: 4 },
   aiBubble: { alignSelf: 'flex-start', borderBottomLeftRadius: 4, width: '100%' },
   aiHeaderTag: { borderBottomWidth: 1, paddingBottom: 6, marginBottom: 8 },
-  checkboxContainer: { position: 'absolute', top: 12, right: 12, width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  selectionCheckbox: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   checkboxInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#fff' },
   structuredTextContainer: { gap: 10 },
   paragraphBlock: { flexDirection: 'row' },

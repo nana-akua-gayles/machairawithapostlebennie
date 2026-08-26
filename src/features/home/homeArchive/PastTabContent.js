@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { View, Pressable, StyleSheet, Image } from 'react-native';
 import { Flame, ArrowUpRight } from 'lucide-react-native';
 import { supabase } from '../../../config/supabaseClient';
-import { AppText } from '../../../components/AppText'; 
+import { AppText } from '../../../components/AppText';
 import { useTheme } from '../../../context/ThemeContext';
 import episodeBg from '../../../../assets/images/episodeBg.jpg';
 
@@ -14,13 +14,11 @@ export const PastTabContent = ({ onSelectEpisode, userId }) => {
   const [streakCount, setStreakCount] = useState(0);
   const [loadingStreak, setLoadingStreak] = useState(true);
 
-  // Fetch archives and server-validated streak count
   useEffect(() => {
     let isMounted = true;
 
     async function fetchData() {
       try {
-        // 1. Fetch Archives
         const { data: devotionalData, error: devotionalError } = await supabase
           .from('devotionals')
           .select('*')
@@ -48,11 +46,11 @@ export const PastTabContent = ({ onSelectEpisode, userId }) => {
           if (profileData && !profileError && isMounted) {
             const today = new Date().toISOString().split('T')[0];
             const lastDate = profileData.last_devotional_date;
-            
+
             if (lastDate) {
               const diffTime = new Date(today) - new Date(lastDate);
               const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-              
+
               // If more than 1 day passed, visually reflect 0 (server RPC formalizes reset on next check-in)
               setStreakCount(diffDays > 1 ? 0 : (profileData.current_streak || 0));
             } else {
@@ -101,9 +99,13 @@ export const PastTabContent = ({ onSelectEpisode, userId }) => {
         >
           {item.title}
         </AppText>
-        
+
         <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
-          <AppText type="semiBold" style={[styles.cardDateText, { color: colors.textSecondary }]}>
+          <AppText
+            type="semiBold"
+            numberOfLines={1}
+            style={[styles.cardDateText, { color: colors.textSecondary }]}
+          >
             {item.date}
           </AppText>
           <View style={[styles.actionIconCircle, { backgroundColor: softTint }]}>
@@ -122,11 +124,29 @@ export const PastTabContent = ({ onSelectEpisode, userId }) => {
           <View style={[styles.flameCircle, { backgroundColor: softTint }]}>
             <AppText type="bold" style={[styles.streakCountText, { color: colors.primary }]}>🔥</AppText>
           </View>
-          <View>
-            <AppText type="bold" style={[styles.streakTitle, { color: colors.text }]}>
+          {/*
+            flexShrink + minWidth: 0 on this wrapper (not just the text) is
+            what actually lets the AppText children shrink below their
+            natural content width inside the flex-row — without minWidth: 0,
+            a flex child's default min-width is "auto" (its content size),
+            which silently defeats flexShrink and lets long text push past
+            the card edge instead of wrapping/truncating.
+          */}
+          <View style={styles.streakTextGroup}>
+            <AppText
+              type="bold"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              style={[styles.streakTitle, { color: colors.text }]}
+            >
               {loadingStreak ? 'Loading streak...' : `${streakCount}-Day Devotional Streak`}
             </AppText>
-            <AppText type="regular" style={[styles.streakSubtitle, { color: colors.textSecondary }]}>
+            <AppText
+              type="regular"
+              numberOfLines={2}
+              style={[styles.streakSubtitle, { color: colors.textSecondary }]}
+            >
               {streakCount > 0 ? "You're on fire! Keep feeding your spirit." : "Read a devotional today to ignite your streak!"}
             </AppText>
           </View>
@@ -148,43 +168,21 @@ export const PastTabContent = ({ onSelectEpisode, userId }) => {
 
 const styles = StyleSheet.create({
   pastContainer: { width: '100%' },
-  streakBanner: { 
-    borderRadius: 16, 
-    padding: 14, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'space-between', 
-    marginBottom: 20,
-    borderWidth: 1, 
-    elevation: 2, 
-    shadowColor: '#0f172a', 
-    shadowOffset: { width: 0, height: 2 }, 
-    shadowOpacity: 0.04, 
-    shadowRadius: 6 
-  },
-  streakLeft: { flexDirection: 'row', alignItems: 'center', gap: 18 },
-  flameCircle: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  streakBanner: { borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, borderWidth: 1, elevation: 2, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6 },
+  streakLeft: { flexDirection: 'row', alignItems: 'center', gap: 18, flex: 1, minWidth: 0 },
+  streakTextGroup: { flex: 1, flexShrink: 1, minWidth: 0 },
+  flameCircle: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   streakTitle: { fontSize: 13 },
   streakSubtitle: { fontSize: 11, marginTop: 1 },
   masonryGrid: { flexDirection: 'row', width: '100%', gap: 12 },
   gridColumn: { flex: 1, flexDirection: 'column', gap: 12 },
-  card: { 
-    flex: 1, 
-    borderRadius: 20, 
-    overflow: 'hidden', 
-    borderWidth: 1, 
-    elevation: 2, 
-    shadowColor: '#0f172a', 
-    shadowOffset: { width: 0, height: 4 }, 
-    shadowOpacity: 0.02, 
-    shadowRadius: 8 
-  },
+  card: { flex: 1, borderRadius: 20, overflow: 'hidden', borderWidth: 1, elevation: 2, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.02, shadowRadius: 8 },
   cardPressed: { transform: [{ scale: 0.98 }], opacity: 0.95 },
   isolatedImageContainer: { width: '100%', aspectRatio: 1.75, overflow: 'hidden', borderBottomWidth: 1 },
   pureCardImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   cardContent: { padding: 12, flex: 1, justifyContent: 'space-between' },
   archiveCardTitle: { fontSize: 13, lineHeight: 18, marginBottom: 8, minHeight: 36 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: 8, marginTop: 'auto' },
-  cardDateText: { fontSize: 11 },
-  actionIconCircle: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  cardDateText: { fontSize: 11, flexShrink: 1, marginRight: 6 },
+  actionIconCircle: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 });

@@ -51,7 +51,7 @@ const BOOK_PATTERN = BOOKS
  .map((b) => b.replace(/\s+/g, '\\s+'))
  .join('|');
 const SCRIPTURE_REF = new RegExp(
- `((?:${BOOK_PATTERN})\\s+\\d{1,3}(?::\\d{1,3}(?:[\\u2010\\u2013\\u2014-]\\d{1,3})?)?(?:\\s*\\([^)]{1,40}\\))?\\.?)`,
+ `\\b((?:${BOOK_PATTERN})\\s+\\d{1,3}(?::\\d{1,3}(?:[\\u2010\\u2013\\u2014-]\\d{1,3})?)?(?:\\s*\\([^)]{1,40}\\))?\\.?)`,
  'i'
 );
 function findScriptureReference(text) {
@@ -121,20 +121,23 @@ const JUNK_TEXT_PATTERNS = [
  /Download\s+PDF/gi,
  /\bBy\b(?=\s*(<a[^>]*>[\s\S]*?<\/a>\s*)?\(Pronounced)/g,
  /\(Pronounced\s*makh['\u2019]-ahee-rah\)\s*Daily\s*revelatory\s*thoughts\s*to\s*sharpen\s*you\s*and\s*to\s*help\s*you\s*grow\s*in\s*deep\s*spiritual\s*understanding\s*and\s*knowledge\.?\s*Daily\s*Christ-centered\s*and\s*apostolic-prophetic\s*prayers\.?/gi,
+ /_{5,}/g,
 ];
 const ANCHOR_SEARCH_WINDOW = 500;
+const KNOWN_AUTHOR_NAME_PREFIX = '(?:Apostle\\s+Bennie|APOSTLE\\s+BENJAMIN\\s+NANA\\s+AMISSAH\\s+ANSAH)\\s+';
 
 function extendCapsRunWithSubtitle(text, capsEnd) {
  const rest = text.slice(capsEnd);
  const connectorMatch = rest.match(/^\s*[\u2013\u2014\u2010-]?\s*/);
  const afterConnector = rest.slice(connectorMatch[0].length);
- const subtitleMatch = afterConnector.match(/^([A-Za-z][A-Za-z\s]*?)(\s*\d{1,2})?(?=["'\u2018\u201c])/);
- if (!subtitleMatch) return capsEnd;
- const subtitleWords = subtitleMatch[1].trim().split(/\s+/).filter(Boolean);
- if (subtitleWords.length < 2) return capsEnd;
- if (!/^[A-Z]/.test(subtitleWords[0])) return capsEnd;
- if (/[.!?]/.test(subtitleMatch[1])) return capsEnd;
- return capsEnd + connectorMatch[0].length + subtitleMatch[0].length;
+ const subtitleMatch = afterConnector.match(/^([A-Za-z][A-Za-z\s\u2010\u2011!?-]*?)(\s*\d{1,2})?(?=["'\u2018\u201c])/);
+if (!subtitleMatch) return capsEnd;
+const subtitleWords = subtitleMatch[1].trim().split(/\s+/).filter(Boolean);
+if (subtitleWords.length < 2) return capsEnd;
+if (!/^[A-Z]/.test(subtitleWords[0])) return capsEnd;
+const midTextBoundary = /[.!?]\s+[A-Za-z]/.test(subtitleMatch[1]);
+if (midTextBoundary) return capsEnd;
+return capsEnd + connectorMatch[0].length + subtitleMatch[0].length;
 }
 function matchTitleWithOptionalSubtitle(text) {
  const capsEnd = matchCapsTitleRun(text);
@@ -174,8 +177,14 @@ function stripFlatPreamble(content, { title } = {}) {
  /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s*(?:\d{1,2}(st|nd|rd|th)?,?\s*[A-Za-z]+,?\s*\d{4}|[A-Za-z]+\s+\d{1,2},?\s*\d{4})/
  );
  const authorMatch = !dateMatch
- ? searchZone.match(/(?<!\bthe\s)(?<!\ban\s)(?<!\bour\s)(?<!\byour\s)(?<!\bhis\s)(?<!\bher\s)(?<!\bmy\s)\bAuthor\b[\s\u00A0]+/i)
+ ? searchZone.match(
+ new RegExp(
+ `(?:${KNOWN_AUTHOR_NAME_PREFIX})?(?<!\\bthe\\s)(?<!\\ban\\s)(?<!\\bour\\s)(?<!\\byour\\s)(?<!\\bhis\\s)(?<!\\bher\\s)(?<!\\bmy\\s)\\bAuthor\\b[\\s\\u00A0]+`,
+ 'i'
+ )
+ )
  : null;
+
  const anchorMatch = dateMatch || authorMatch;
  if (!anchorMatch) {
  const capsEnd = matchTitleWithOptionalSubtitle(result);
@@ -196,7 +205,10 @@ function stripFlatPreamble(content, { title } = {}) {
  const afterAnchor = result.slice(anchorMatch.index + anchorMatch[0].length);
  if (dateMatch) {
  const authorInBefore = before.match(
- /(?<!\bthe\s)(?<!\ban\s)(?<!\bour\s)(?<!\byour\s)(?<!\bhis\s)(?<!\bher\s)(?<!\bmy\s)\bAuthor\b[\s\u00A0]+/i
+ new RegExp(
+ `(?:${KNOWN_AUTHOR_NAME_PREFIX})?(?<!\\bthe\\s)(?<!\\ban\\s)(?<!\\bour\\s)(?<!\\byour\\s)(?<!\\bhis\\s)(?<!\\bher\\s)(?<!\\bmy\\s)\\bAuthor\\b[\\s\\u00A0]+`,
+ 'i'
+ )
  );
  if (authorInBefore) {
  before =
@@ -219,7 +231,7 @@ function stripFlatPreamble(content, { title } = {}) {
  }
  const droppedHead = collapseWhitespace(`${anchorMatch[0]} ${titleSpan}`);
  const beforeTrimmed = before.trim();
- const spliced = beforeTrimmed ? `${beforeTrimmed} ${afterTitle.trim()}` : afterTitle.trim();
+  const spliced = beforeTrimmed ? `${beforeTrimmed}\u241E${afterTitle.trim()}` : afterTitle.trim();
  return finalizeFlatResult(spliced, title, droppedHead);
 }
 function finalizeFlatResult(content, title, droppedHead) {
@@ -267,8 +279,8 @@ function stripBarePlainTextUrls(html) {
  return part;
  }
  if (insideAnchor) return part;
- let result = part.replace(/https?:\/\/(?:www\.)?youtu\.be\/[A-Za-z0-9_-]{11}/g, ' ');
- result = result.replace(/https?:\/\/(?:www\.)?youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}/g, ' ');
+ let result = part.replace(/https?:\/\/(?:www\.)?youtu\.be\/[A-Za-z0-9_-]{11}(?:&(?:(?!DIG|WE\s+PRAY|BIBLE|DECLARE)[^\s])*)?/g, ' ');
+ result = result.replace(/https?:\/\/(?:www\.)?youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}(?:&(?:(?!DIG|WE\s+PRAY|BIBLE|DECLARE)[^\s])*)?/g, ' ');
  return result.replace(/[ \t]{2,}/g, ' ');
  }).join('');
 }
@@ -307,9 +319,10 @@ function stripNonEpisodeLinks(html) {
  const hrefMatch = attrs.match(/href=["']([^"']*)["']/i);
  const href = hrefMatch ? hrefMatch[1] : null;
  if (isEpisodeNavLink(href)) return match;
- return '';
+ return inner;
  });
- return stripped.replace(/[ \t]{2,}/g, ' ');
+ const parensCleaned = stripped.replace(/\(\s*\.?\s*\)\.?/g, '');
+ return parensCleaned.replace(/[ \t]{2,}/g, ' ');
 }
 function stripEpisodePrefix(title) {
  if (!title) return title;
@@ -333,6 +346,10 @@ function stripEmptyTags(content) {
  return result;
 }
 function extractOpeningScripture(content) {
+ const markerIdx = content.indexOf('\u241E');
+ if (markerIdx !== -1) {
+ content = content.slice(markerIdx + 1);
+ }
  const h4Match = content.match(/^\s*<h4[^>]*>([\s\S]*?)<\/h4>\s*/i);
  if (h4Match) {
  const innerText = collapseWhitespace(stripTags(h4Match[1]));
@@ -370,14 +387,15 @@ function extractOpeningScripture(content) {
  return { keyVerseText: null, keyVerseRef: null, status: 'ambiguous-h4-no-ref', leading: '', rest: content };
  }
 const SEARCH_WINDOW = 800;
- const window = content.slice(0, SEARCH_WINDOW);
- const openMatch = window.match(/(^|\s)(["'\u201c\u2018\u201d])/);
+ const windowRaw = content.slice(0, SEARCH_WINDOW);
+ const window = windowRaw.replace(/<[a-z0-9]+\s+[^>]*>/gi, (tag) => tag.replace(/["']/g, '\u0000'));
+ const openMatch = window.match(/(^|\s|\d|\.)(["'\u201c\u2018\u201d])/);
  const quoteStart = openMatch ? openMatch.index + openMatch[1].length : -1;
  const earlyBareFound = findScriptureReference(window);
  const preferBarePath = earlyBareFound && earlyBareFound.index <= 220 && (quoteStart === -1 || quoteStart > earlyBareFound.index);
  if (quoteStart !== -1 && !preferBarePath) {
  const leading = content.slice(0, quoteStart).trim();
- const afterQuote = window.slice(quoteStart + 1);
+ const afterQuote = content.slice(quoteStart + 1, SEARCH_WINDOW);
 const closeRe = /["'\u2018\u201c\u201d\u2019]/g;
  let closeMatch;
  const closeCandidates = [];
@@ -386,7 +404,7 @@ const closeRe = /["'\u2018\u201c\u201d\u2019]/g;
  }
  let found = null;
  let usedCloseIdx = -1;
- for (let i = closeCandidates.length - 1; i >= 0; i--) {
+ for (let i = 0; i < closeCandidates.length; i++) {
  const idx = closeCandidates[i];
  const candidate = findScriptureReference(afterQuote.slice(idx + 1));
  if (candidate && candidate.index <= 40) {
@@ -436,7 +454,7 @@ const closeRe = /["'\u2018\u201c\u201d\u2019]/g;
 }
 const FOOTER_LABELS = ['DIG DEEPER', 'WE PRAY', 'BIBLE READING IN THE YEAR', 'DECLARE THESE WORDS'];
 function splitFooter(content) {
- const idx = content.search(/DIG DEEPER/i);
+ const idx = content.search(/DIG DEEPER/);
  if (idx === -1) return { body: content, footerHtml: null };
  const tagOpenBefore = content.lastIndexOf('<p', idx);
  const cutPoint = tagOpenBefore !== -1 && idx - tagOpenBefore < 50 ? tagOpenBefore : idx;
@@ -479,6 +497,7 @@ function splitDashPoints(text) {
 }
 
 function parseDeclarations(declareRaw) {
+ declareRaw = stripShortcodes(declareRaw);
  const rawLines = declareRaw.split('\n').map((l) => l.trim()).filter(Boolean);
  const lines = rawLines.length > 1
  ? rawLines
@@ -524,7 +543,7 @@ function buildFooterHtml(footerRaw) {
     const end = positions[positions.indexOf(start) + 1];
     return plain
       .slice(start.index + label.length, end.index)
-      .replace(/^[:\s\u2013-]+/, '')
+      .replace(/^[:;\s\u2013-]+/, '')
       .trim();
   };
   const digDeeper = sliceFor('DIG DEEPER');
@@ -568,7 +587,7 @@ function convertDashLists(text) {
  );
  const listedBoth = convertMarkerRun(
  listedDash,
- /\b(\d{1,2})\.\s(?=[A-Z])/g,
+ /\b(\d{1,2})\.\s(?=[A-Z<])/g,
  () => 0,
  (raw) => raw.replace(/^\d{1,2}\.\s*/, ''),
  'ol',
@@ -610,6 +629,18 @@ function convertMarkerRun(text, markerRe, matchOffset, stripMarker, tag, maxGap 
  const localMarkers = run
  .map((mk) => mk.start - introEnd)
  .filter((idx) => idx >= 0 && idx <= listBlock.length);
+ const anchorSpans = [];
+ const anchorRe = /<a\b[^>]*>[\s\S]*?<\/a>/gi;
+ let am;
+ while ((am = anchorRe.exec(listBlock))) {
+ anchorSpans.push({ start: am.index, end: am.index + am[0].length });
+ }
+ const wouldTearAnchor = localMarkers.some((idx) =>
+ anchorSpans.some((span) => idx > span.start && idx < span.end)
+ );
+ if (wouldTearAnchor) {
+ return;
+ }
  const items = [];
  for (let i = 0; i < localMarkers.length; i++) {
  const start = localMarkers[i];
@@ -650,8 +681,12 @@ function findScriptureQuoteSpans(text) {
  const openRe = /["'\u2018\u201c\u201d]/g;
  let m;
  let searchFrom = 0;
- while ((m = openRe.exec(text))) {
+while ((m = openRe.exec(text))) {
  if (m.index < searchFrom) continue;
+ const precedingChar = text[m.index - 1];
+ if (precedingChar && /[A-Za-z]/.test(precedingChar)) {
+ continue;
+ }
  const openIdx = m.index;
  const closeRe = /["'\u2018\u201c\u201d]/g;
  closeRe.lastIndex = openIdx + 1;
@@ -680,9 +715,14 @@ function findScriptureQuoteSpans(text) {
  return spans;
 }
 function groupSentenceChunks(text) {
- const spans = findScriptureQuoteSpans(text);
+ const PERIOD_MASK = '\u0001';
+ const textWithMaskedAnchorPeriods = text.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (anchorTag) =>
+ anchorTag.replace(/\./g, PERIOD_MASK)
+ );
+
+ const spans = findScriptureQuoteSpans(textWithMaskedAnchorPeriods);
  const protectedUnits = [];
- let working = text;
+ let working = textWithMaskedAnchorPeriods;
  let offset = 0;
  spans.forEach((span, i) => {
  const adjStart = span.start - offset;
@@ -694,7 +734,7 @@ function groupSentenceChunks(text) {
  offset += (adjEnd - adjStart) - token.length;
  });
  const sentences = working
- .split(/(?<=[.!?])\s+(?=[A-Z"\u201c(<])/)
+ .split(/(?<=[.!?:])\s+(?=[A-Z"\u201c(<@])|(?<=@@SCRIPT\d+@@)\s*(?=[A-Za-z"\u201c\u2018])|(?<=[a-zA-Z:])\s*(?=@@SCRIPT\d+@@)/)
  .map((s) => s.trim())
  .filter(Boolean);
  const chunks = [];
@@ -707,7 +747,7 @@ function groupSentenceChunks(text) {
  fullstopCount = 0;
  }
  };
- const restoreTokens = (s) => s.replace(/@@SCRIPT(\d+)@@/g, (_, i) => protectedUnits[Number(i)]);
+ const restoreTokens = (s) => s.replace(/@@SCRIPT(\d+)@@/g, (_, i) => protectedUnits[Number(i)]).replace(new RegExp(PERIOD_MASK, 'g'), '.');
  sentences.forEach((rawSentence) => {
  if (!rawSentence) return;
  const sentence = restoreTokens(rawSentence);
@@ -729,12 +769,23 @@ function groupSentenceChunks(text) {
  }
  current.push(sentence);
  fullstopCount += periodsHere;
+ if (fullstopCount > 3) {
+ flush();
+ }
  });
  flush();
  return chunks;
 }
+function splitAdjacentAnchorChunks(chunks) {
+ const result = [];
+ chunks.forEach((chunk) => {
+ const pieces = chunk.split(/(?<=<\/a>)\s*(?=<a\b)/gi).map((p) => p.trim()).filter(Boolean);
+ pieces.forEach((p) => result.push(p));
+ });
+ return result;
+}
 function paragraphizeText(text) {
- return groupSentenceChunks(text).map((chunk) => `<p>${chunk}</p>`);
+ return splitAdjacentAnchorChunks(groupSentenceChunks(text)).map((chunk) => `<p>${chunk}</p>`);
 }
 function breakSentencesForList(text) {
  return groupSentenceChunks(text).join('<br/><br/>');

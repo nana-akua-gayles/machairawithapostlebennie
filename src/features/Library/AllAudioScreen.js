@@ -19,8 +19,6 @@ export const AllAudioScreen = () => {
   const route = useRoute();
   const { audioList = [] } = route.params || {};
 
-  const BRAND_RED = "#e11d48";
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -56,14 +54,14 @@ export const AllAudioScreen = () => {
                 style={styles.gradientOverlay}
               />
               <View style={styles.centeredPlayIcon}>
-                <Play size={24} color="white" fill="white" />
+                <Play size={24} color={colors.onPrimary} fill={colors.onPrimary} />
               </View>
             </View>
             <View style={styles.cardContent}>
               <AppText type="semiBold" style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
                 {item.title}
               </AppText>
-              <AppText style={[styles.cardDuration, { color: colors.textSecondary }]}>
+              <AppText numberOfLines={1} style={[styles.cardDuration, { color: colors.textSecondary }]}>
                 {item.duration}
               </AppText>
             </View>

@@ -2,7 +2,7 @@
  * USAGE:
  *   node batch-test-devotionals.mjs            # tests 20 random rows
  *   node batch-test-devotionals.mjs 50         # tests 50 random rows
- *   node batch-test-devotionals.mjs all        # tests every row in the table
+ *   node batch-test-devotionals.mjs all        # tests every row in the table (paginated)
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -25,11 +25,15 @@ import {
 
 const TABLE = 'devotionals';
 const CONTENT_COL = 'content';
-const TITLE_COL = 'title'; 
+const TITLE_COL = 'title';
 const ID_COL = 'id';
 
 const MIN_VERSE_LENGTH = 15;
 const STRAY_QUOTE_RE = /^["'\u2018\u201c\u201d]|["'\u2018\u201c\u201d]$/;
+
+// Supabase caps a single request at 1000 rows regardless of .limit() —
+// fetching "all" requires paging through with .range() in chunks this size.
+const PAGE_SIZE = 1000;
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -37,7 +41,6 @@ const supabase = createClient(
 );
 
 function stripHtmlEntities(text) {
-  // mirrors the helper already in DevotionalScreen.js
   if (!text) return '';
   return text
     .replace(/<[^>]*>?/gm, '')
@@ -50,9 +53,6 @@ function stripHtmlEntities(text) {
     .trim();
 }
 
-// Mirrors the normalization sequence at the top of processDevotionalHtml,
-// so this script sees exactly what the app would produce before the
-// preamble/verse extraction runs.
 function normalizeContent(rawContent) {
   let content = stripLeadingCss((rawContent || '').trim());
   content = decodeEntities(content);
@@ -75,10 +75,6 @@ function hasNearbyScriptureRef(content) {
 function isVerseInappropriate(verse, content) {
   const wasFound = verse.status === 'found' || verse.status === 'found-unquoted';
   if (!wasFound) {
-    // Extraction failed to pair a quote with a reference. Only flag this
-    // if a scripture reference genuinely appears near the start of the
-    // body -- otherwise this episode most likely just doesn't open with
-    // one, which is a normal, valid shape and not a bug.
     return hasNearbyScriptureRef(content);
   }
   if (!verse.keyVerseRef) return true;
@@ -135,19 +131,42 @@ function processOne(row) {
   };
 }
 
-async function run() {
-  const arg = process.argv[2];
-  let query = supabase.from(TABLE).select('*');
+// Fetches every row in the table, paging past Supabase's 1000-row cap.
+async function fetchAllRows() {
+  let allRows = [];
+  let from = 0;
 
-  if (arg === 'all') {
-    // no limit
-  } else {
-    const limit = arg ? parseInt(arg, 10) : 20;
-    query = query.limit(limit);
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('*')
+      .range(from, to);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allRows = allRows.concat(data);
+
+    if (data.length < PAGE_SIZE) break; // last page was partial, so we're done
+    from += PAGE_SIZE;
   }
 
-  const { data: rows, error } = await query;
-  if (error) throw error;
+  return allRows;
+}
+
+async function run() {
+  const arg = process.argv[2];
+  let rows;
+
+  if (arg === 'all') {
+    rows = await fetchAllRows();
+  } else {
+    const limit = arg ? parseInt(arg, 10) : 20;
+    const { data, error } = await supabase.from(TABLE).select('*').limit(limit);
+    if (error) throw error;
+    rows = data;
+  }
 
   console.log(`Testing ${rows.length} row(s) from "${TABLE}" (showing rows with a missing or inappropriate verse only)...\n`);
 
@@ -163,7 +182,7 @@ async function run() {
       return;
     }
 
-    if (!result.flagged) return; // Skip printing when the verse looks fine
+    if (!result.flagged) return;
 
     flaggedCount++;
 

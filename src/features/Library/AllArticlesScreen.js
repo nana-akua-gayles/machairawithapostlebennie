@@ -9,7 +9,6 @@ import { supabase } from "../../config/supabaseClient";
 
 const PADDING = 24;
 const PAGE_SIZE = 20;
-const ACCENT = "#e11d48";
 const HEADER_FADE_START = 30;
 const HEADER_FADE_END = 90;
 
@@ -52,7 +51,7 @@ const buildRows = (articles) => {
 };
 
 export const AllArticlesScreen = () => {
-  const { colors, dark } = useTheme();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { width } = useWindowDimensions();
@@ -149,7 +148,7 @@ export const AllArticlesScreen = () => {
       >
         {({ pressed }) => (
           <>
-            <AppText type="bold" style={[styles.rowNumber, { color: ACCENT }]}>{String(number).padStart(2, "0")}</AppText>
+            <AppText type="bold" style={[styles.rowNumber, { color: colors.primary }]}>{String(number).padStart(2, "0")}</AppText>
             <View style={styles.rowBody}>
               <View style={styles.metaRow}>
                 <AppText style={[styles.metaText, { color: colors.textSecondary }]}>{dayLabel(item.created_at)}</AppText>
@@ -210,7 +209,7 @@ export const AllArticlesScreen = () => {
 
       {loading ? (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="small" color={ACCENT} />
+          <ActivityIndicator size="small" color={colors.primary} />
         </View>
       ) : (
         <AnimatedFlatList
@@ -226,8 +225,8 @@ export const AllArticlesScreen = () => {
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           overScrollMode="never"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={ACCENT} colors={[ACCENT]} />}
-          ListFooterComponent={loadingMore ? <View style={styles.footerLoader}><ActivityIndicator size="small" color={ACCENT} /></View> : null}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} colors={[colors.primary]} />}
+          ListFooterComponent={loadingMore ? <View style={styles.footerLoader}><ActivityIndicator size="small" color={colors.primary} /></View> : null}
           renderItem={renderItem}
         />
       )}

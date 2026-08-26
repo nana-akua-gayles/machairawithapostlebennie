@@ -1,21 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, ScrollView, StyleSheet, Pressable, Share, ActivityIndicator, Image, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { ArrowLeft, Bookmark, Share2, Type, RotateCcw, Compass, BookOpen, Download, Hand, HandHelping, MessageSquare, Send, Trash2, User as UserIcon } from 'lucide-react-native';
+import { ArrowLeft, Bookmark, Share2, Type, RotateCcw, Compass, BookOpen, Download, Hand, HandHelping, MessageSquare, Send, Trash2, User as UserIcon, NotebookPen, Headphones, Pause } from 'lucide-react-native';
 import { AppText } from '../../components/AppText';
 import { useTheme } from '../../context/ThemeContext';
+import { useAudio } from '../../context/AudioContext';
 import { supabase } from '../../config/supabaseClient';
 import { decodeEntities, processDevotionalHtml, parseBibleReading, splitDashPoints, parseDeclarations } from './formatDevotionalHtml';
 import DevotionalViewer from './DevotionalViewer';
 import ForumSection from './ForumSection';
+import { getLocalDevotional } from './devotionalSync';
+import NetInfo from '@react-native-community/netinfo';
+import { queueBookmarkAction } from './localDatabase';
 
-const DEVOTIONAL_RED = '#DC2626';
+
+const STREAK_LISTEN_SECONDS_THRESHOLD = 30;
+const STREAK_LISTEN_PERCENT_THRESHOLD = 0.8;
 
 export default function DevotionalScreen({ route, navigation }) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
+  const accentColor = isDark ? colors.text : colors.primary;
   const insets = useSafeAreaInsets();
+  const { currentTrack, isPlaying, currentTime, duration, playAudio, togglePlayPause } = useAudio();
 
   const { episodeId = 18613 } = route.params || {};
 
@@ -25,9 +34,9 @@ export default function DevotionalScreen({ route, navigation }) {
   const [error, setError] = useState(null);
   const [imageError, setImageError] = useState(false);
   const [authorImageError, setAuthorImageError] = useState(false);
-  
+
   const [devotionalData, setDevotionalData] = useState({
-    title: '', authorName: '', authorImageUrl: null, imageUrl: null, dateString: '', episodeNumber: null,});
+    title: '', authorName: '', authorImageUrl: null, imageUrl: null, audioUrl: null, dateString: '', episodeNumber: null,});
   const [rawHtmlContent, setRawHtmlContent] = useState('');
   const [footerCards, setFooterCards] = useState({ digDeeper: null, prayer: null, prayerPoints: null, bibleReading: null, bibleReadingPlans: null, declarations: [],});
   const [currentUser, setCurrentUser] = useState(null);
@@ -35,26 +44,62 @@ export default function DevotionalScreen({ route, navigation }) {
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
+  const [commentsError, setCommentsError] = useState(null);
+
 
   useEffect(() => {
+    let isMounted = true;
     async function getUserData() {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) setCurrentUser(user);
+      if (isMounted && user) setCurrentUser(user);
     }
     getUserData();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
+  const normalizeEpisodeNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+
+ 
+  const recordStreakEngagement = useCallback(async (user) => {
+    if (!user) return;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('last_devotional_date')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) throw profileError;
+
+      if (profileData?.last_devotional_date === today) {
+        // Already recorded today via this or another trigger (read or
+        // listen) — skip, since we can't trust the RPC to no-op safely.
+        return;
+      }
+
+      await supabase.rpc('update_user_streak', { user_id: user.id });
+    } catch (streakErr) {
+      console.error('Error updating streak:', streakErr);
+    }
+  }, []);
 
   useEffect(() => {
     async function checkBookmarkStatus() {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || !devotionalData.episodeNumber) return;
+        if (!currentUser || !devotionalData.episodeNumber) return;
 
         const { data, error } = await supabase
           .from('saved_devotionals')
           .select('id')
-          .eq('user_id', user.id)
+          .eq('user_id', currentUser.id)
           .eq('episode_number', devotionalData.episodeNumber)
           .maybeSingle();
 
@@ -67,30 +112,39 @@ export default function DevotionalScreen({ route, navigation }) {
     }
 
     checkBookmarkStatus();
-  }, [devotionalData.episodeNumber]);
+  }, [devotionalData.episodeNumber, currentUser]);
 
-// Fetch comments for current episode
   const fetchComments = useCallback(async (epNum) => {
-    if (!epNum) return;
-    try {
-      setLoadingComments(true);
-      const { data, error } = await supabase
-        .from('devotional_comments')
-        .select(`
-          id, content, created_at, user_id,
-          profiles ( name, avatar_url )
-        `)
-        .eq('episode_number', epNum)
-        .order('created_at', { ascending: false });
+  if (!epNum) return;
+  try {
+    setLoadingComments(true);
+    setCommentsError(null);
 
-      if (error) throw error;
-      setComments(data || []);
-    } catch (err) {
-      console.error('Error fetching comments:', err.message || err);
-    } finally {
-      setLoadingComments(false);
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected) {
+      setCommentsError('Comments require an internet connection.');
+      setComments([]);
+      return;
     }
-  }, []);
+
+    const { data, error } = await supabase
+      .from('devotional_comments')
+      .select(`
+        id, content, created_at, user_id,
+        profiles ( name, avatar_url )
+      `)
+      .eq('episode_number', epNum)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    setComments(data || []);
+  } catch (err) {
+    console.error('Error fetching comments:', err.message || err);
+    setCommentsError('Unable to load comments right now.');
+  } finally {
+    setLoadingComments(false);
+  }
+}, []);
 
   useEffect(() => {
     if (devotionalData.episodeNumber) {
@@ -125,7 +179,8 @@ export default function DevotionalScreen({ route, navigation }) {
         .single();
 
       if (error) throw error;
-      setComments((prev) => [data, ...prev]);
+  
+      setComments((prev) => (prev.some((c) => c.id === data.id) ? prev : [data, ...prev]));
     } catch (err) {
       console.error('Error submitting comment:', err.message || err);
       Alert.alert('Error', 'Unable to post comment. Please try again.');
@@ -135,56 +190,88 @@ export default function DevotionalScreen({ route, navigation }) {
     }
   };
 
-  // Delete a comment
+  // Delete a comment — confirms first since this is destructive and
+  // irreversible from the user's side.
   const handleDeleteComment = async (commentId) => {
-    try {
-      setComments((prev) => prev.filter((c) => c.id !== commentId));
+    Alert.alert(
+      'Delete Comment',
+      'Are you sure you want to delete this comment? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const previousComments = comments;
+            setComments((prev) => prev.filter((c) => c.id !== commentId));
 
-      const { error } = await supabase
-        .from('devotional_comments')
-        .delete()
-        .eq('id', commentId);
+            try {
+              const { error } = await supabase
+                .from('devotional_comments')
+                .delete()
+                .eq('id', commentId);
 
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error deleting comment:', err.message || err);
-      Alert.alert('Error', 'Could not delete comment.');
-      if (devotionalData.episodeNumber) fetchComments(devotionalData.episodeNumber);
-    }
+              if (error) throw error;
+            } catch (err) {
+              console.error('Error deleting comment:', err.message || err);
+              Alert.alert('Error', 'Could not delete comment.');
+              // Restore the exact prior list rather than refetching, so a
+              // flaky network doesn't also fail the recovery step.
+              setComments(previousComments);
+            }
+          },
+        },
+      ]
+    );
   };
-
 
   const handleToggleBookmark = async () => {
+  if (!currentUser || !devotionalData.episodeNumber) return;
+
+  const previousState = isBookmarked;
+  setIsBookmarked(!previousState);
+
+  const netState = await NetInfo.fetch();
+
+  if (!netState.isConnected) {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !devotionalData.episodeNumber) return;
-
-      const previousState = isBookmarked;
-      setIsBookmarked(!previousState); 
-
-      if (previousState) {
-        const { error } = await supabase
-          .from('saved_devotionals')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('episode_number', devotionalData.episodeNumber);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('saved_devotionals')
-          .insert({
-            user_id: user.id,
-            episode_number: devotionalData.episodeNumber,
-          });
-
-        if (error) throw error;
-      }
+      await queueBookmarkAction(devotionalData.episodeNumber, previousState ? 'remove' : 'add');
     } catch (err) {
-      console.error('Error toggling bookmark:', err.message || err);
-      setIsBookmarked(isBookmarked); 
+      console.error('Error queueing offline bookmark action:', err);
+      setIsBookmarked((current) => !current);
+      Alert.alert(
+        'Couldn\'t Save Bookmark',
+        'Something went wrong saving this for later. Please try again once you\'re back online.'
+      );
     }
-  };
+    return;
+  }
+
+  try {
+    if (previousState) {
+      const { error } = await supabase
+        .from('saved_devotionals')
+        .delete()
+        .eq('user_id', currentUser.id)
+        .eq('episode_number', devotionalData.episodeNumber);
+
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('saved_devotionals')
+        .insert({
+          user_id: currentUser.id,
+          episode_number: devotionalData.episodeNumber,
+        });
+
+      if (error) throw error;
+    }
+  } catch (err) {
+    console.error('Error toggling bookmark:', err.message || err);
+    setIsBookmarked((current) => !current);
+    Alert.alert('Bookmark Failed', 'Unable to save your bookmark. Please try again.');
+  }
+};
 
   const handleInternalLinkPress = useCallback((targetEpisodeId) => {
     navigation.push('Devotional', { episodeId: targetEpisodeId });
@@ -198,21 +285,28 @@ export default function DevotionalScreen({ route, navigation }) {
       setAuthorImageError(false);
 
       const targetQuery = String(episodeId);
+let data = await getLocalDevotional({
+  id: !isNaN(episodeId) ? parseInt(episodeId, 10) : null,
+  episodeNumber: !isNaN(episodeId) ? parseInt(episodeId, 10) : null,
+});
 
-      let { data } = await supabase
-        .from('devotionals')
-        .select('*')
-        .eq('id', targetQuery)
-        .maybeSingle();
+if (!data) {
+  const resById = await supabase
+    .from('devotionals')
+    .select('*')
+    .eq('id', targetQuery)
+    .maybeSingle();
+  data = resById.data;
 
-      if (!data && !isNaN(episodeId)) {
-        const resNum = await supabase
-          .from('devotionals')
-          .select('*')
-          .eq('episode_number', parseInt(episodeId, 10))
-          .maybeSingle();
-        data = resNum.data;
-      }
+  if (!data && !isNaN(episodeId)) {
+    const resNum = await supabase
+      .from('devotionals')
+      .select('*')
+      .eq('episode_number', parseInt(episodeId, 10))
+      .maybeSingle();
+    data = resNum.data;
+  }
+}
 
       if (!data) {
         const { data: fallbackData } = await supabase
@@ -224,6 +318,10 @@ export default function DevotionalScreen({ route, navigation }) {
 
       if (!data) {
         throw new Error('Devotional not found in Supabase.');
+      }
+
+      if (currentUser) {
+        recordStreakEngagement(currentUser);
       }
 
       const rawContent = data.content || '';
@@ -243,11 +341,12 @@ export default function DevotionalScreen({ route, navigation }) {
 
       let extractedTitle = data.title || data.name || data.episode_title || '';
       let extractedAuthorName = data.author || data.author_name || 'APOSTLE BENJAMIN NANA AMISSAH ANSAH';
-      let extractedEpisodeNumber = data.episode_number || episodeId || null;
-      
+ 
+      let extractedEpisodeNumber = normalizeEpisodeNumber(data.episode_number) ?? normalizeEpisodeNumber(episodeId);
+
       let extractedImage = null;
       const rawColumnValue = data.image_url;
-      
+
       if (rawColumnValue) {
         let cleanUrl = '';
         if (typeof rawColumnValue === 'string') {
@@ -263,7 +362,7 @@ export default function DevotionalScreen({ route, navigation }) {
 
       let extractedAuthorImage = null;
       const rawAuthorImageValue = data.author_image_url || data.author_image || data.speaker_image_url;
-      
+
       if (rawAuthorImageValue) {
         let cleanAuthorUrl = '';
         if (typeof rawAuthorImageValue === 'string') {
@@ -294,7 +393,7 @@ export default function DevotionalScreen({ route, navigation }) {
           extractedDate = parsedDate.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         }
       }
-      
+
       if (!extractedDate) {
         const dateMatch = rawContent.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{1,2},?\s*\d{4}/i) ||
                           rawContent.match(/(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{1,2},?\s*\d{4}/i);
@@ -305,21 +404,35 @@ export default function DevotionalScreen({ route, navigation }) {
 
       const extractedUpdatedDate = data.updated_at || data.updated_date ? new Date(data.updated_at || data.updated_date).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }) : null;
 
+      let extractedAudioUrl = null;
+      const rawAudioValue = data.audio_url;
+      if (rawAudioValue) {
+        let cleanAudioUrl = '';
+        if (typeof rawAudioValue === 'string') {
+          cleanAudioUrl = rawAudioValue.trim().replace(/^["']|["']$/g, '');
+        } else if (typeof rawAudioValue === 'object' && rawAudioValue.url) {
+          cleanAudioUrl = String(rawAudioValue.url).trim();
+        }
+        if (cleanAudioUrl) {
+          extractedAudioUrl = cleanAudioUrl;
+        }
+      }
+
       setDevotionalData({ title: extractedTitle, authorName: extractedAuthorName, authorImageUrl: extractedAuthorImage,
-        imageUrl: extractedImage, dateString: extractedDate, updatedDateString: extractedUpdatedDate, episodeNumber: extractedEpisodeNumber,});
+        imageUrl: extractedImage, audioUrl: extractedAudioUrl, dateString: extractedDate, updatedDateString: extractedUpdatedDate, episodeNumber: extractedEpisodeNumber,});
 
       const formattedHtml = processDevotionalHtml(rawContent, { title: extractedTitle, includeFooter: false,});
 
-setRawHtmlContent(formattedHtml);
+      setRawHtmlContent(formattedHtml);
       let digDeeperText = null; let prayerText = null; let bibleReadingText = null; let extractedDeclarations = [];
 
-      const digDeeperMatch = rawContent.match(/DIG\s*DEEPER([\s\S]*?)(?=WE\s*PRAY|BIBLE\s*READING|DECLARE)/i);
+      const digDeeperMatch = rawContent.match(/DIG\s*DEEPER([\s\S]*?)(?=WE\s*PRAY|BIBLE\s*READING|DECLARE)/);
       if (digDeeperMatch && digDeeperMatch[1]) {
         digDeeperText = stripHtmlEntities(digDeeperMatch[1]).trim();
       }
 
       let prayerPoints = null;
-      const prayerMatch = rawContent.match(/WE\s*PRAY([\s\S]*?)(?=BIBLE\s*READING|DECLARE)/i);
+      const prayerMatch = rawContent.match(/WE\s*PRAY([\s\S]*?)(?=BIBLE\s*READING|DECLARE)/);
       if (prayerMatch && prayerMatch[1]) {
         const cleanedPrayer = stripHtmlEntities(prayerMatch[1]).trim();
         const split = splitDashPoints(cleanedPrayer);
@@ -331,22 +444,22 @@ setRawHtmlContent(formattedHtml);
       }
 
       let bibleReadingPlans = null;
-const bibleSectionMatch = rawContent.match(/BIBLE\s*READING\s*IN\s*THE\s*YEAR([\s\S]*?)(?=DECLARE)/i);
-if (bibleSectionMatch && bibleSectionMatch[1]) {
-  const parsed = parseBibleReading(stripHtmlEntities(bibleSectionMatch[1]).trim());
-  if (parsed.readingPlans) {
-    bibleReadingPlans = parsed.readingPlans;
-  } else if (parsed.passages) {
-    bibleReadingText = parsed.day ? `Day ${parsed.day}: ${parsed.passages}` : parsed.passages;
-  }
-} else {
-  const dayStyleMatch = rawContent.match(/BIBLE\s*READING[^]*?(\d{3}[\s\S]*?)(?=DECLARE)/i);
-  if (dayStyleMatch && dayStyleMatch[1]) {
-    bibleReadingText = stripHtmlEntities(dayStyleMatch[1]).trim();
-  }
-}
+      const bibleSectionMatch = rawContent.match(/BIBLE\s*READING\s*IN\s*THE\s*YEAR([\s\S]*?)(?=DECLARE)/);
+      if (bibleSectionMatch && bibleSectionMatch[1]) {
+        const parsed = parseBibleReading(stripHtmlEntities(bibleSectionMatch[1]).trim());
+        if (parsed.readingPlans) {
+          bibleReadingPlans = parsed.readingPlans;
+        } else if (parsed.passages) {
+          bibleReadingText = parsed.day ? `Day ${parsed.day}: ${parsed.passages}` : parsed.passages;
+        }
+      } else {
+        const dayStyleMatch = rawContent.match(/BIBLE\s*READING[^]*?(DAY\s*\d{1,4}[\s\S]*?)(?=DECLARE)/);
+        if (dayStyleMatch && dayStyleMatch[1]) {
+          bibleReadingText = stripHtmlEntities(dayStyleMatch[1]).trim();
+        }
+      }
 
-      const declareMatch = rawContent.match(/DECLARE\s*THESE\s*WORDS\s*:?([\s\S]*)$/i);
+      const declareMatch = rawContent.match(/DECLARE\s*THESE\s*WORDS\s*:?([\s\S]*)$/);
       if (declareMatch && declareMatch[1]) {
         const rawDeclText = stripHtmlEntities(declareMatch[1]);
         const { declarations } = parseDeclarations(rawDeclText);
@@ -357,16 +470,65 @@ if (bibleSectionMatch && bibleSectionMatch[1]) {
         });
       }
 
-setFooterCards({ digDeeper: digDeeperText || null,  prayer: prayerText || null, prayerPoints, bibleReading: bibleReadingText || null, bibleReadingPlans, declarations: extractedDeclarations,});    }
-catch (err) {
+      setFooterCards({ digDeeper: digDeeperText || null,  prayer: prayerText || null, prayerPoints, bibleReading: bibleReadingText || null, bibleReadingPlans, declarations: extractedDeclarations,});
+    } catch (err) {
       console.error('Error fetching devotional:', err);
       setError('Unable to load devotional content at this time.');
     } finally {
       setLoading(false);
     }
-  }, [episodeId]);
+  }, [episodeId, currentUser, recordStreakEngagement]);
 
   useEffect(() => { loadDevotional();}, [loadDevotional]);
+
+  const hasCountedListenRef = useRef(false);
+
+  useEffect(() => {
+    hasCountedListenRef.current = false;
+  }, [devotionalData.audioUrl]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!devotionalData.audioUrl) return;
+    if (hasCountedListenRef.current) return;
+
+    if (!currentTrack || currentTrack.audioUrl !== devotionalData.audioUrl) return;
+
+    const metThresholdBySeconds = currentTime >= STREAK_LISTEN_SECONDS_THRESHOLD;
+    const metThresholdByPercent = duration > 0 && currentTime / duration >= STREAK_LISTEN_PERCENT_THRESHOLD;
+
+    if (metThresholdBySeconds || metThresholdByPercent) {
+      hasCountedListenRef.current = true;
+      recordStreakEngagement(currentUser);
+    }
+  }, [currentTime, duration, currentTrack, currentUser, devotionalData.audioUrl, recordStreakEngagement]);
+
+ 
+  const handleTogglePlayAudio = useCallback(() => {
+    const isThisEpisodeLoaded = !!devotionalData.audioUrl && currentTrack?.audioUrl === devotionalData.audioUrl;
+
+    if (isThisEpisodeLoaded) {
+      togglePlayPause();
+      return;
+    }
+
+    if (!devotionalData.audioUrl) {
+      Alert.alert('No Audio', 'Audio is not available for this devotional.');
+      return;
+    }
+
+    playAudio(
+      {
+        title: devotionalData.title,
+        speaker: devotionalData.authorName,
+        episodeNumber: devotionalData.episodeNumber,
+        audioUrl: devotionalData.audioUrl,
+      },
+      devotionalData.audioUrl
+    );
+  }, [currentTrack, devotionalData, playAudio, togglePlayPause]);
+
+  const isThisEpisodePlaying = !!devotionalData.audioUrl && currentTrack?.audioUrl === devotionalData.audioUrl && isPlaying;
 
   const handleToggleFontSize = useCallback(() => {
     setFontSizeOffset((prev) => {
@@ -378,7 +540,7 @@ catch (err) {
     try {
       const shareTitle = devotionalData.title ? `"${devotionalData.title}"` : 'Devotional';
       const episodeLabel = devotionalData.episodeNumber ? `Episode ${devotionalData.episodeNumber}` : '';
-      
+
       const cleanExcerpt = rawHtmlContent
         .replace(/<[^>]*>?/gm, '')
         .replace(/&#8211;|&ndash;/g, '-')
@@ -411,7 +573,7 @@ catch (err) {
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           </head>
           <body>
-            
+           
             <div>
               ${rawHtmlContent}
             </div>
@@ -486,11 +648,35 @@ catch (err) {
 
         <View style={styles.headerRightActions}>
           <Pressable
+            onPress={() => navigation.navigate('MyNotes')}
+            style={({ pressed }) => [styles.iconBtn, pressed && styles.pressedOpacity]}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Write a note"
+          >
+            <NotebookPen color={colors.text} size={20} />
+          </Pressable>
+          {!!devotionalData.audioUrl && (
+            <Pressable
+              onPress={handleTogglePlayAudio}
+              style={({ pressed }) => [styles.iconBtn, pressed && styles.pressedOpacity]}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel={isThisEpisodePlaying ? 'Pause audio' : 'Play audio'}
+            >
+              {isThisEpisodePlaying ? (
+                <Pause color={colors.primary} size={20} fill={colors.primary} />
+              ) : (
+                <Headphones color={colors.text} size={20} />
+              )}
+            </Pressable>
+          )}
+          <Pressable
             onPress={handleToggleFontSize}
             style={({ pressed }) => [styles.iconBtn, pressed && styles.pressedOpacity]}
             hitSlop={12}
           >
-            <Type color={fontSizeOffset !== 0 ? DEVOTIONAL_RED : colors.text} size={20} />
+            <Type color={fontSizeOffset !== 0 ? colors.primary : colors.text} size={20} />
           </Pressable>
           <Pressable
             onPress={handleToggleBookmark}
@@ -498,8 +684,8 @@ catch (err) {
             hitSlop={12}
           >
             <Bookmark
-              color={isBookmarked ? DEVOTIONAL_RED : colors.text}
-              fill={isBookmarked ? DEVOTIONAL_RED : 'transparent'}
+              color={isBookmarked ? colors.primary : colors.text}
+              fill={isBookmarked ? colors.primary : 'transparent'}
               size={20}
             />
           </Pressable>
@@ -515,7 +701,7 @@ catch (err) {
 
       {loading ? (
         <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={DEVOTIONAL_RED} />
+          <ActivityIndicator size="large" color={colors.primary} />
           <AppText style={[styles.loadingText, { color: colors.textSecondary }]}>
             Loading devotional...
           </AppText>
@@ -535,7 +721,7 @@ catch (err) {
               pressed && styles.pressedOpacity,
             ]}
           >
-            <RotateCcw color="#ffffff" size={16} style={styles.retryIcon} />
+            <RotateCcw color={colors.onPrimary} size={16} style={styles.retryIcon} />
             <AppText type="bold" style={styles.retryText}>
               Try Again
             </AppText>
@@ -544,7 +730,7 @@ catch (err) {
       ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
-          automaticallyAdjustKeyboardInsets={true} 
+          automaticallyAdjustKeyboardInsets={true}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
             styles.scrollContent,
@@ -553,18 +739,18 @@ catch (err) {
         >
           <View style={[styles.titleSection, { borderColor: colors.border }]}>
             <View style={styles.topMetaBar}>
-              <Pressable 
+              <Pressable
                 onPress={handleDownloadPdf}
                 style={({ pressed }) => [styles.downloadPdfButton, { backgroundColor: colors.card, borderColor: colors.border }, pressed && styles.pressedOpacity]}
                 hitSlop={8}
               >
-                <Download color={DEVOTIONAL_RED} size={14} style={styles.downloadIcon} />
+                <Download color={colors.primary} size={14} style={styles.downloadIcon} />
                 <AppText type="semibold" style={styles.downloadPdfText}>Download PDF</AppText>
               </Pressable>
             </View>
 
-            <AppText 
-              type="bold" 
+            <AppText
+              type="bold"
               style={[styles.mainTitle, { color: colors.text, fontSize: 21 + fontSizeOffset }]}
             >
               {devotionalData.title}
@@ -578,7 +764,6 @@ catch (err) {
 
             <View style={styles.authorSectionRow}>
               <View style={styles.authorBadgeRow}>
-                <AppText style={[styles.byText, { color: colors.text }]}>By </AppText>
                 <Image
                   source={require('../../../assets/images/Apostle1.jpg')}
                   style={[styles.authorAvatar, { borderColor: colors.border }]}
@@ -593,16 +778,16 @@ catch (err) {
             <View style={[styles.headerDivider, { backgroundColor: colors.border }]} />
           </View>
 
-          <AppText 
-            type="bold" 
-            style={[styles.orgHeaderTitle, { color: DEVOTIONAL_RED, fontSize: 17 + fontSizeOffset }]}
+          <AppText
+            type="bold"
+            style={[styles.orgHeaderTitle, { color: accentColor, fontSize: 17 + fontSizeOffset }]}
           >
             CHRIST COMMONWEALTH GLOBAL
           </AppText>
 
-          <AppText 
-            type="bold" 
-            style={[styles.orgSubtitleText, { color: DEVOTIONAL_RED, fontSize: 17 + fontSizeOffset }]}
+          <AppText
+            type="bold"
+            style={[styles.orgSubtitleText, { color: accentColor, fontSize: 17 + fontSizeOffset }]}
           >
             Love Life Agency
           </AppText>
@@ -616,13 +801,13 @@ catch (err) {
           </View>
 
           <View style={styles.dateBadgeContainer}>
-            <AppText style={[styles.dateBadgeText, { color: DEVOTIONAL_RED }]}>
+            <AppText style={[styles.dateBadgeText, { color: accentColor }]}>
               {devotionalData.dateString ? devotionalData.dateString.toUpperCase() : ''}
             </AppText>
           </View>
 
-          <AppText 
-            type="bold" 
+          <AppText
+            type="bold"
             style={[styles.titleText, { color: colors.text, fontSize: 18 + fontSizeOffset, marginBottom: 11, textAlign: 'center' }]}
           >
             {devotionalData.title.replace(/^episode\s*\d+[:\s-]*|^ep\.?\s*\d+[:\s-]*/i, '').trim()}
@@ -632,8 +817,8 @@ catch (err) {
             <View style={[styles.titleLine]} />
           </View>
 
-          <DevotionalViewer 
-            htmlContent={rawHtmlContent} 
+          <DevotionalViewer
+            htmlContent={rawHtmlContent}
             title={devotionalData.title}
             baseFontSize={currentBaseFontSize}
             onInternalLinkPress={handleInternalLinkPress}
@@ -643,8 +828,8 @@ catch (err) {
             {footerCards.digDeeper && (
               <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.actionCardHeader}>
-                  <Compass color={DEVOTIONAL_RED} size={18} style={styles.actionCardIcon} />
-                  <AppText type="bold" style={[styles.actionCardTitle, { color: DEVOTIONAL_RED, fontSize: 13 + fontSizeOffset }]}>
+                  <Compass color={accentColor} size={18} style={styles.actionCardIcon} />
+                  <AppText type="bold" style={[styles.actionCardTitle, { color: accentColor, fontSize: 13 + fontSizeOffset }]}>
                     DIG DEEPER
                   </AppText>
                 </View>
@@ -657,8 +842,8 @@ catch (err) {
             {(footerCards.prayer || footerCards.prayerPoints) && (
               <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.actionCardHeader}>
-                  <HandHelping color={DEVOTIONAL_RED} size={18} style={styles.actionCardIcon} />
-                  <AppText type="bold" style={[styles.actionCardTitle, { color: DEVOTIONAL_RED, fontSize: 13 + fontSizeOffset }]}>
+                  <HandHelping color={accentColor} size={18} style={styles.actionCardIcon} />
+                  <AppText type="bold" style={[styles.actionCardTitle, { color: accentColor, fontSize: 13 + fontSizeOffset }]}>
                     WE PRAY
                   </AppText>
                 </View>
@@ -677,44 +862,44 @@ catch (err) {
             )}
 
             {(footerCards.bibleReading || footerCards.bibleReadingPlans) && (
-  <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-    <View style={styles.actionCardHeader}>
-      <BookOpen color={DEVOTIONAL_RED} size={18} style={styles.actionCardIcon} />
-      <AppText type="bold" style={[styles.actionCardTitle, { color: DEVOTIONAL_RED, fontSize: 13 + fontSizeOffset }]}>
-        BIBLE READING IN THE YEAR
-      </AppText>
-    </View>
-    {footerCards.bibleReadingPlans ? (
-      footerCards.bibleReadingPlans.map((plan, pIdx) => (
-        <View key={pIdx} style={{ marginTop: pIdx > 0 ? 8 : 0 }}>
-          <AppText type="semibold" style={[styles.actionCardBody, { color: DEVOTIONAL_RED, fontSize: currentBaseFontSize - 2 }]}>
-            {plan.label}
-          </AppText>
-          <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
-            {plan.passage}
-          </AppText>
-        </View>
-      ))
-    ) : (
-      <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
-        {footerCards.bibleReading}
-      </AppText>
-    )}
-  </View>
-)}
+              <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.actionCardHeader}>
+                  <BookOpen color={accentColor} size={18} style={styles.actionCardIcon} />
+                  <AppText type="bold" style={[styles.actionCardTitle, { color: accentColor, fontSize: 13 + fontSizeOffset }]}>
+                    BIBLE READING IN THE YEAR
+                  </AppText>
+                </View>
+                {footerCards.bibleReadingPlans ? (
+                  footerCards.bibleReadingPlans.map((plan, pIdx) => (
+                    <View key={pIdx} style={{ marginTop: pIdx > 0 ? 8 : 0 }}>
+                      <AppText type="semibold" style={[styles.actionCardBody, { color: accentColor, fontSize: currentBaseFontSize - 2 }]}>
+                        {plan.label}
+                      </AppText>
+                      <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
+                        {plan.passage}
+                      </AppText>
+                    </View>
+                  ))
+                ) : (
+                  <AppText style={[styles.actionCardBody, { color: colors.textSecondary, fontSize: currentBaseFontSize - 1 }]}>
+                    {footerCards.bibleReading}
+                  </AppText>
+                )}
+              </View>
+            )}
 
             {footerCards.declarations.length > 0 && (
               <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.actionCardHeader}>
-                  <Hand color={DEVOTIONAL_RED} size={18} style={styles.actionCardIcon} />
-                  <AppText type="bold" style={[styles.actionCardTitle, { color: DEVOTIONAL_RED, fontSize: 13 + fontSizeOffset }]}>
+                  <Hand color={accentColor} size={18} style={styles.actionCardIcon} />
+                  <AppText type="bold" style={[styles.actionCardTitle, { color: accentColor, fontSize: 13 + fontSizeOffset }]}>
                     DECLARE THESE WORDS
                   </AppText>
                 </View>
                 <View style={styles.declarationList}>
                   {footerCards.declarations.map((decl, dIdx) => (
                     <View key={dIdx} style={styles.declarationRow}>
-                      <View style={[styles.bulletIndicator, { backgroundColor: DEVOTIONAL_RED }]} />
+                      <View style={[styles.bulletIndicator, { backgroundColor: accentColor }]} />
                       <AppText type="italic" style={[styles.declarationText, { color: colors.text, fontSize: currentBaseFontSize - 1 }]}>
                         {decl}
                       </AppText>
@@ -724,19 +909,35 @@ catch (err) {
               </View>
             )}
 
-            <ForumSection
-              comments={comments}
-              loadingComments={loadingComments}
-              newComment={newComment}
-              setNewComment={setNewComment}
-              handleAddComment={handleAddComment}
-              submittingComment={submittingComment}
-              handleDeleteComment={handleDeleteComment}
-              currentUser={currentUser}
-              colors={colors}
-            />
-          
-          
+            {commentsError ? (
+              <View style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <AppText style={[styles.errorSub, { color: colors.textSecondary, marginBottom: 12 }]}>
+                  {commentsError}
+                </AppText>
+                <Pressable
+                  onPress={() => fetchComments(devotionalData.episodeNumber)}
+                  style={({ pressed }) => [styles.retryBtn, { alignSelf: 'center' }, pressed && styles.pressedOpacity]}
+                >
+                  <RotateCcw color={colors.onPrimary} size={16} style={styles.retryIcon} />
+                  <AppText type="bold" style={styles.retryText}>
+                    Try Again
+                  </AppText>
+                </Pressable>
+              </View>
+            ) : (
+              <ForumSection
+                comments={comments}
+                loadingComments={loadingComments}
+                newComment={newComment}
+                setNewComment={setNewComment}
+                handleAddComment={handleAddComment}
+                submittingComment={submittingComment}
+                handleDeleteComment={handleDeleteComment}
+                currentUser={currentUser}
+                colors={colors}
+              />
+            )}
+
           </View>
         </ScrollView>
       )}
@@ -744,7 +945,7 @@ catch (err) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) => StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
   headerNavTitle: { fontSize: 16 },
@@ -755,19 +956,20 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, fontSize: 14 },
   errorTitle: { fontSize: 18, marginBottom: 8 },
   errorSub: { fontSize: 14, textAlign: 'center', marginBottom: 20 },
-  retryBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, backgroundColor: DEVOTIONAL_RED },
+  retryBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, backgroundColor: colors.primary },
   retryIcon: { marginRight: 8 },
-  retryText: { color: '#ffffff' },
+  retryText: { color: colors.onPrimary },
   scrollContent: { paddingHorizontal: 30, paddingTop: 16 },
   titleSection: { marginBottom: 24, alignItems: 'flex-start', paddingHorizontal: 4 },
   topMetaBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', width: '100%', marginBottom: 14, paddingHorizontal: 2 },
   downloadPdfButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1 },
   downloadIcon: { marginRight: 6 },
-  downloadPdfText: { fontSize: 11, color: DEVOTIONAL_RED, letterSpacing: 0.5 },
+  downloadPdfText: { fontSize: 11, color: colors.primary, letterSpacing: 0.5 },
   authorSectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginTop: 4 },
   authorBadgeRow: { flexDirection: 'row', alignItems: 'center' },
   authorAvatar: { width: 35, height: 35, borderRadius: 25, marginRight: 8, borderWidth: 1 },
-  authorText: { fontSize: 11, letterSpacing: 1.5 },
+  authorText: { fontSize: 10, letterSpacing: 1.3, flexShrink: 1, flexWrap: 'wrap' },
+  authorBadgeRow: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
   orgHeaderTitle: { fontSize: 17, marginBottom: 6, textAlign: 'center' },
   orgSubtitleText: { fontSize: 17, textAlign: 'center' },
   imageContainer: { width: '100%', marginVertical: 10, alignItems: 'center', marginTop: 15 },
@@ -780,7 +982,7 @@ const styles = StyleSheet.create({
   byText: { fontSize: 12 },
   headerDivider: { width: 48, height: 2, borderRadius: 1, marginTop: 16, opacity: 0.3 },
   doubleLineContainer: { width: '100%' },
-  titleLine: { height: 2, borderRadius: 1, width: '100%', backgroundColor: 'black', marginBottom: 3 },
+  titleLine: { height: 2, borderRadius: 1, width: '100%', backgroundColor: colors.text, marginBottom: 3, opacity: 0.15 },
   titleText: { fontSize: 18 },
   footerContainer: { marginTop: 20, gap: 14 },
   actionCard: { padding: 16, borderRadius: 12, borderWidth: 1 },

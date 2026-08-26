@@ -20,12 +20,37 @@ export function useNotifications() {
   }, []);
 
   useEffect(() => {
-    fetchNotifications();
-    const channel = supabase
-      .channel(channelNameRef.current)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, fetchNotifications)
-      .subscribe();
-    return () => supabase.removeChannel(channel);
+    let channel;
+    let cancelled = false;
+
+    const setup = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
+      await fetchNotifications();
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(channelNameRef.current)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          fetchNotifications
+        )
+        .subscribe();
+    };
+
+    setup();
+
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
   }, [fetchNotifications]);
 
   const unreadCount = notifications.filter(n => !n.read).length;

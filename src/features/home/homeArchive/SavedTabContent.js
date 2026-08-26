@@ -11,6 +11,7 @@ import episodeBg from '../../../../assets/images/episodeBg.jpg';
 export function SavedScreen({ user, navigation, onSelectEpisode }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
   const [savedItems, setSavedItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -130,7 +131,7 @@ export function SavedScreen({ user, navigation, onSelectEpisode }) {
         <View style={styles.coverWrapper}>
           <Image source={coverSource} style={[styles.episodeCover, { backgroundColor: colors.border }]} />
           <View style={[styles.textBadge, isCompleted && styles.textBadgeCompleted]}>
-            <BookOpen color="#ffffff" size={10} />
+            <BookOpen color={colors.onPrimary} size={10} />
           </View>
         </View>
         
@@ -147,20 +148,25 @@ export function SavedScreen({ user, navigation, onSelectEpisode }) {
                 }}
                 style={styles.favoriteButton}
               >
-                <Heart color="#ef4444" fill="#ef4444" size={16} />
+                <Heart color={colors.primary} fill={colors.primary} size={16} />
               </Pressable>
           </View>
           
-          <AppText type="regular" style={[styles.seriesSubtitle, { color: colors.textSecondary }]}>
+          <AppText
+            type="regular"
+            style={[styles.seriesSubtitle, { color: colors.textSecondary }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {item.series || 'Read Time:'} • {dynamicReadTime}
           </AppText>
 
           <View style={styles.progressContainer}>
             <View style={[styles.progressBarBackground, { backgroundColor: colors.border }]}>
-              <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
+              <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: colors.primary }]} />
             </View>
             <View style={styles.progressTextRow}>
-              <AppText type="semiBold" style={[styles.progressText, { color: colors.textSecondary }, isCompleted && styles.completedText]}>
+              <AppText type="semiBold" style={[styles.progressText, { color: colors.textSecondary }, isCompleted && { color: colors.primary }]}>
                 {isCompleted ? 'Finished Reading' : `${progress}% Read`}
               </AppText>
             </View>
@@ -203,7 +209,7 @@ export function SavedScreen({ user, navigation, onSelectEpisode }) {
       ) : savedItems.length === 0 ? (
         <View style={styles.centerWrapper}>
           <View style={[styles.emptyContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Heart color="#fecaca" size={48} strokeWidth={1.5} fill="#fee2e2" />
+            <Heart color={colors.primaryMuted} size={48} strokeWidth={1.5} fill={colors.surfaceActive} />
             <AppText type="bold" style={[styles.emptyTitle, { color: colors.text }]}>Shelf is Empty</AppText>
             <AppText type="regular" style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
               Tap the favorite icon while reading Machaira episodes to save them here.
@@ -223,7 +229,7 @@ export function SavedScreen({ user, navigation, onSelectEpisode }) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) => StyleSheet.create({
   flexOne: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -267,24 +273,23 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#a1a1aa',
+    backgroundColor: colors.tabBarInactive,
     alignItems: 'center',
     justifyContent: 'center',
   },
   textBadgeCompleted: {
-    backgroundColor: '#ef4444'
+    backgroundColor: colors.primary,
   },
-  episodeDetails: { flex: 1, marginLeft: 16, justifyContent: 'center' },
+  episodeDetails: { flex: 1, marginLeft: 16, justifyContent: 'center', minWidth: 0 },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   episodeTitle: { fontSize: 14, flex: 1, marginRight: 8 },
   favoriteButton: { padding: 4 },
   seriesSubtitle: { fontSize: 12, marginTop: 2 },
   progressContainer: { marginTop: 10 },
   progressBarBackground: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  progressBarFill: { height: '100%', backgroundColor: '#ef4444', borderRadius: 2 },
+  progressBarFill: { height: '100%', borderRadius: 2 },
   progressTextRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
   progressText: { fontSize: 11 },
-  completedText: { color: '#ef4444' },
   emptyContainer: { borderRadius: 16, padding: 32, alignItems: 'center', justifyContent: 'center', borderWidth: 1, width: '100%' },
   emptyTitle: { fontSize: 16, marginTop: 12 },
   emptySubtitle: { fontSize: 13, textAlign: 'center', marginTop: 6, lineHeight: 18 }

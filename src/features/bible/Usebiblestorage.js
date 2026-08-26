@@ -31,6 +31,7 @@ export const Usebiblestorage = () => {
 
       setUser(session?.user ?? null);
       fetchSavedVerses(session?.user ?? null);
+      fetchNotes(session?.user ?? null);
     };
 
     init();
@@ -40,6 +41,7 @@ export const Usebiblestorage = () => {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ??null);
       fetchSavedVerses(session?.user ?? null);
+      fetchNotes(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
@@ -66,6 +68,41 @@ export const Usebiblestorage = () => {
     } else {
       const local = await AsyncStorage.getItem(STORAGE_KEYS.savedVerses);
       setSavedVerses(local ? JSON.parse(local) : {});
+    }
+  };
+
+  // Mirrors fetchSavedVerses: pulls from Supabase when logged in (so notes
+  // sync across devices, matching saved verses), falls back to whatever is
+  // on-device for guests.
+  const fetchNotes = async (currentUser) => {
+    if (currentUser) {
+      const { data, error } = await supabase
+        .from('notes')
+        .select('*')
+        .eq('user_id', currentUser.id);
+
+      if (error) {
+        console.error(error);
+        return;
+      }
+
+      const formatted = (data || []).reduce((acc, item) => {
+        const key = `${item.book}_${item.chapter}_${item.verse}`;
+        acc[key] = {
+          book: item.book,
+          chapter: item.chapter,
+          verse: item.verse,
+          title: item.title ?? '',
+          note: item.note,
+          timestamp: new Date(item.updated_at || item.created_at).getTime(),
+        };
+        return acc;
+      }, {});
+
+      setVerseNotes(formatted);
+    } else {
+      const local = await AsyncStorage.getItem(STORAGE_KEYS.verseNotes);
+      setVerseNotes(local ? JSON.parse(local) : {});
     }
   };
 
@@ -169,41 +206,85 @@ export const Usebiblestorage = () => {
   };
 
   const saveNote = async (verseKey, noteData, noteText) => {
-    setVerseNotes(prev => {
-      const updated = { ...prev };
+    const { book, chapter, verse, title } = noteData;
+    const trimmedText = noteText.trim();
 
-      if (!noteText.trim()) {
-        delete updated[verseKey];
+    if (user) {
+      if (!trimmedText) {
+        // Empty note body means "remove the note" — same behavior as the
+        // AsyncStorage path below, just against Supabase instead.
+        await supabase
+          .from('notes')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('book', book)
+          .eq('chapter', chapter)
+          .eq('verse', verse);
       } else {
-        updated[verseKey] = {
-          ...noteData,
-          note: noteText,
-          timestamp: Date.now(),
-        };
+        await supabase
+          .from('notes')
+          .upsert(
+            [{ user_id: user.id, book, chapter, verse, title: title || null, note: noteText }],
+            { onConflict: 'user_id,book,chapter,verse' }
+          );
       }
 
-      AsyncStorage.setItem(
-        STORAGE_KEYS.verseNotes,
-        JSON.stringify(updated)
-      );
+      fetchNotes(user);
+    } else {
+      setVerseNotes(prev => {
+        const updated = { ...prev };
 
-      return updated;
-    });
+        if (!trimmedText) {
+          delete updated[verseKey];
+        } else {
+          updated[verseKey] = {
+            ...noteData,
+            note: noteText,
+            timestamp: Date.now(),
+          };
+        }
+
+        AsyncStorage.setItem(
+          STORAGE_KEYS.verseNotes,
+          JSON.stringify(updated)
+        );
+
+        return updated;
+      });
+    }
   };
 
   const removeNote = async (noteKey) => {
-    setVerseNotes(prev => {
-      const updated = { ...prev };
+    if (user) {
+      // Use the fields already held in state rather than re-parsing
+      // noteKey, since a book name could in principle contain the same
+      // separator character used to build the key.
+      const target = verseNotes[noteKey];
+      if (!target) return;
 
-      delete updated[noteKey];
+      await supabase
+        .from('notes')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('book', target.book)
+        .eq('chapter', target.chapter)
+        .eq('verse', target.verse);
 
-      AsyncStorage.setItem(
-        STORAGE_KEYS.verseNotes,
-        JSON.stringify(updated)
-      );
+      fetchNotes(user);
+    } else {
+      setVerseNotes(prev => {
+        const updated = { ...prev };
 
-      return updated;
-    });
+        delete updated[noteKey];
+
+        AsyncStorage.setItem(
+          STORAGE_KEYS.verseNotes,
+          JSON.stringify(updated)
+        );
+
+        return updated;
+      });
+    }
   };
 
   return {

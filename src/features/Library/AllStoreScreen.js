@@ -1,14 +1,15 @@
-import React, { useState, useCallback, useMemo } from "react";
-import { View, StyleSheet, FlatList, Pressable, Image, useWindowDimensions } from "react-native";
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import { View, StyleSheet, FlatList, Pressable, Image, useWindowDimensions, ActivityIndicator, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../../context/ThemeContext";
 import { AppText } from "../../components/AppText";
-import { ArrowLeft, Heart, ShoppingBag } from "lucide-react-native";
+import { ArrowLeft, Heart, ShoppingBag, RefreshCw } from "lucide-react-native";
+import { supabase } from "../../config/supabaseClient";
 
 const GRID_PADDING = 20;
 const GRID_GAP = 12;
-const BRAND_RED = "#e11d48";
+const PAGE_SIZE = 20;
 
 const formatPrice = (price) => {
   const numeric = typeof price === "number" ? price : Number(price);
@@ -20,11 +21,71 @@ export const AllStoreScreen = () => {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const route = useRoute();
   const { width } = useWindowDimensions();
-  const { storeItems = [] } = route.params || {};
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
 
+  const [storeItems, setStoreItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [errored, setErrored] = useState(false);
   const [favorites, setFavorites] = useState(() => new Set());
+
+  const isMountedRef = useRef(true);
+  const loadingMoreRef = useRef(false);
+
+  useEffect(() => () => { isMountedRef.current = false; }, []);
+
+  const fetchStoreItems = useCallback(async ({ lastItem = null } = {}) => {
+    try {
+      setErrored(false);
+      let query = supabase.from("store_items").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }).limit(PAGE_SIZE);
+
+      if (lastItem) {
+        query = query.or(`created_at.lt.${lastItem.created_at},and(created_at.eq.${lastItem.created_at},id.lt.${lastItem.id})`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      if (!isMountedRef.current) return;
+
+      const page = data || [];
+      setHasMore(page.length >= PAGE_SIZE);
+
+      if (lastItem) {
+        setStoreItems((prev) => {
+          const seen = new Set(prev.map((a) => a.id));
+          return [...prev, ...page.filter((a) => !seen.has(a.id))];
+        });
+      } else {
+        setStoreItems(page);
+      }
+    } catch (err) {
+      if (isMountedRef.current) setErrored(true);
+    } finally {
+      if (!isMountedRef.current) return;
+      setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
+      loadingMoreRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => { fetchStoreItems(); }, [fetchStoreItems]);
+
+  const handleLoadMore = useCallback(() => {
+    if (loadingMoreRef.current || !hasMore || storeItems.length === 0) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    fetchStoreItems({ lastItem: storeItems[storeItems.length - 1] });
+  }, [hasMore, storeItems, fetchStoreItems]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    setHasMore(true);
+    fetchStoreItems();
+  }, [fetchStoreItems]);
 
   const columns = width >= 1024 ? 4 : width >= 768 ? 3 : 3;
   const columnWidth = (width - GRID_PADDING * 2 - GRID_GAP * (columns - 1)) / columns;
@@ -54,9 +115,9 @@ export const AllStoreScreen = () => {
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel={isFavorite ? `Remove ${item.title} from wishlist` : `Add ${item.title} to wishlist`}
-            style={styles.heartButton}
+            style={[styles.heartButton, { backgroundColor: colors.card }]}
           >
-            <Heart size={12} color={isFavorite ? BRAND_RED : "#9CA3AF"} fill={isFavorite ? BRAND_RED : "transparent"} />
+            <Heart size={12} color={isFavorite ? colors.primary : colors.textSecondary} fill={isFavorite ? colors.primary : "transparent"} />
           </Pressable>
         </View>
 
@@ -67,17 +128,27 @@ export const AllStoreScreen = () => {
         <AppText type="semiBold" style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</AppText>
       </Pressable>
     );
-  }, [colors, columnWidth, imageHeight, favorites, navigation, toggleFavorite]);
+  }, [colors, columnWidth, imageHeight, favorites, navigation, toggleFavorite, styles]);
 
-  const listEmpty = (
+  const listEmpty = !loading ? (
     <View style={styles.emptyState}>
       <View style={[styles.emptyIconCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <ShoppingBag size={26} color={colors.textSecondary} />
       </View>
-      <AppText type="bold" style={[styles.emptyTitle, { color: colors.text }]}>Nothing here yet</AppText>
-      <AppText style={[styles.emptySubtitle, { color: colors.textSecondary }]}>New goodies are on their way.</AppText>
+      <AppText type="bold" style={[styles.emptyTitle, { color: colors.text }]}>
+        {errored ? "Couldn't load the store" : "Nothing here yet"}
+      </AppText>
+      <AppText style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+        {errored ? "Check your connection and try again." : "New goodies are on their way."}
+      </AppText>
+      {errored && (
+        <Pressable onPress={handleRefresh} style={[styles.retryButton, { borderColor: colors.border }]} accessibilityRole="button" accessibilityLabel="Retry loading the store">
+          <RefreshCw size={14} color={colors.text} />
+          <AppText type="bold" style={[styles.retryText, { color: colors.text }]}>Retry</AppText>
+        </Pressable>
+      )}
     </View>
-  );
+  ) : null;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -98,23 +169,33 @@ export const AllStoreScreen = () => {
 
       <AppText style={[styles.subtitle, { color: colors.textSecondary }]}>Curated goods, just for you</AppText>
 
-      <FlatList
-        key={`grid-${columns}`}
-        data={storeItems}
-        keyExtractor={(item, index) => (item.id ? String(item.id) : index.toString())}
-        numColumns={columns}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.gridContainer, storeItems.length === 0 && styles.gridContainerEmpty]}
-        columnWrapperStyle={columns > 1 ? styles.columnWrapper : undefined}
-        ListEmptyComponent={listEmpty}
-        overScrollMode="never"
-        renderItem={renderItem}
-      />
+      {loading ? (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="small" color={colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          key={`grid-${columns}`}
+          data={storeItems}
+          keyExtractor={(item, index) => (item.id ? String(item.id) : index.toString())}
+          numColumns={columns}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.gridContainer, storeItems.length === 0 && styles.gridContainerEmpty]}
+          columnWrapperStyle={columns > 1 ? styles.columnWrapper : undefined}
+          ListEmptyComponent={listEmpty}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} colors={[colors.primary]} />}
+          ListFooterComponent={loadingMore ? <View style={styles.footerLoader}><ActivityIndicator size="small" color={colors.primary} /></View> : null}
+          overScrollMode="never"
+          renderItem={renderItem}
+        />
+      )}
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors) => StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 14 },
   backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
@@ -122,19 +203,23 @@ const styles = StyleSheet.create({
   countPill: { minWidth: 32, paddingHorizontal: 10, height: 28, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   countText: { fontSize: 12 },
   subtitle: { fontSize: 13, paddingHorizontal: 20, marginTop: 6, marginBottom: 18 },
+  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   gridContainer: { paddingHorizontal: GRID_PADDING, paddingBottom: 40 },
   gridContainerEmpty: { flexGrow: 1 },
   columnWrapper: { justifyContent: "space-between", marginBottom: GRID_GAP },
-  card: { padding: 10, borderRadius: 26, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 14, elevation: 3 },
-  imageWrapper: { width: "100%", borderRadius: 18, overflow: "hidden", position: "relative" },
+  card: { padding: 8, borderRadius: 20, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
+  imageWrapper: { width: "100%", borderRadius: 14, overflow: "hidden", position: "relative" },
   image: { width: "100%", height: "100%" },
   imageFallback: { alignItems: "center", justifyContent: "center" },
-  heartButton: { position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
-  priceTag: { alignSelf: "flex-start", backgroundColor: BRAND_RED, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 14, marginTop: -16, marginLeft: 6, shadowColor: BRAND_RED, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 3 },
-  priceText: { color: "#fff", fontSize: 12.5, letterSpacing: -0.1 },
-  cardTitle: { fontSize: 13.5, lineHeight: 18, marginTop: 10, paddingHorizontal: 2 },
+  heartButton: { position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  priceTag: { alignSelf: "flex-start", backgroundColor: colors.primary, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, marginTop: -13, marginLeft: 5, shadowColor: colors.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 3 },
+  priceText: { color: colors.onPrimary, fontSize: 11, letterSpacing: -0.1 },
+  cardTitle: { fontSize: 12, lineHeight: 16, marginTop: 8, paddingHorizontal: 2 },
+  footerLoader: { paddingVertical: 24, alignItems: "center" },
   emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 40 },
   emptyIconCircle: { width: 60, height: 60, borderRadius: 30, borderWidth: 1, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   emptyTitle: { fontSize: 16 },
   emptySubtitle: { fontSize: 13.5, textAlign: "center" },
+  retryButton: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 18, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
+  retryText: { fontSize: 13 },
 });

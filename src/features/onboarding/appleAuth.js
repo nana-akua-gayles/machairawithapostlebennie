@@ -1,5 +1,5 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { supabase } from '../../../config/supabaseClient';
+import { supabase } from '../../config/supabaseClient';
 
 export async function executeAppleSignIn() {
   try {

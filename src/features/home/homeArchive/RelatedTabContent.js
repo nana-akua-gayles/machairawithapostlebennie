@@ -8,7 +8,7 @@ import episodeBg from '../../../../assets/images/episodeBg.jpg';
 
 export const RelatedTabContent = ({ onSelectEpisode }) => {
   const { colors, isDark } = useTheme();
-  const softTint = isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff';
+  const softTint = isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2';
 
   const [relatedItems, setRelatedItems] = useState([]);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -46,7 +46,6 @@ export const RelatedTabContent = ({ onSelectEpisode }) => {
         if (data && !error) {
           const mappedData = data.map((item) => ({
             id: item.id,
-            episode: `Episode ${item.episode_number || item.id}`,
             title: item.title,
             date: item.created_at ? new Date(item.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '',
             image: item.flyer_url ? { uri: item.flyer_url } : episodeBg,
@@ -87,22 +86,22 @@ export const RelatedTabContent = ({ onSelectEpisode }) => {
       </View>
 
       <View style={styles.cardContent}>
-        <View style={styles.cardMetaRow}>
-          <AppText type="bold" style={[styles.episodeNumber, { color: colors.primary }]}>
-            {item.episode}
-          </AppText>
-        </View>
-        
         <AppText
           type="bold"
           style={[styles.archiveCardTitle, { color: colors.text }]}
           numberOfLines={2}
+          ellipsizeMode="tail"
         >
           {item.title}
         </AppText>
         
         <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
-          <AppText type="semiBold" style={[styles.cardDateText, { color: colors.textSecondary }]}>
+          <AppText
+            type="semiBold"
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={[styles.cardDateText, { color: colors.textSecondary }]}
+          >
             {item.date}
           </AppText>
           <View style={[styles.actionIconCircle, { backgroundColor: softTint }]}>
@@ -147,12 +146,10 @@ const styles = StyleSheet.create({
   isolatedImageContainer: { width: '100%', aspectRatio: 1.75, overflow: 'hidden', borderBottomWidth: 1 },
   pureCardImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   cardContent: { padding: 12, flex: 1, justifyContent: 'space-between' },
-  cardMetaRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  episodeNumber: { fontSize: 10 },
   archiveCardTitle: { fontSize: 13, lineHeight: 18, marginBottom: 8, minHeight: 36 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: 8, marginTop: 'auto' },
-  cardDateText: { fontSize: 11 },
-  actionIconCircle: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  cardDateText: { fontSize: 11, flexShrink: 1, marginRight: 6, minWidth: 0 },
+  actionIconCircle: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   fallbackContainer: { borderRadius: 16, padding: 32, alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginTop: 10 },
   fallbackText: { fontSize: 14, marginTop: 8 },
 });

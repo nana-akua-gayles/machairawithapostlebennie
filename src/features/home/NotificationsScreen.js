@@ -1,22 +1,10 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { View, StyleSheet, SectionList, Pressable, RefreshControl, ScrollView } from 'react-native';
-import { ArrowLeft, Sparkles, MessageSquare, ShoppingBag, BellRing, Check, Inbox } from 'lucide-react-native';
+import { ArrowLeft, BellRing, Check, Inbox } from 'lucide-react-native';
 import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useNotifications } from './useNotifications';
-
-const TYPE_META = {
-  devotional: { icon: Sparkles, accent: '#6366f1', glow: 'rgba(99, 102, 241, 0.15)' },
-  content: { icon: Sparkles, accent: '#6366f1', glow: 'rgba(99, 102, 241, 0.15)' },
-  support: { icon: MessageSquare, accent: '#06b6d4', glow: 'rgba(6, 182, 212, 0.15)' },
-  order: { icon: ShoppingBag, accent: '#f43f5e', glow: 'rgba(244, 63, 94, 0.15)' },
-  default: { icon: BellRing, accent: '#8b5cf6', glow: 'rgba(139, 92, 246, 0.15)' },
-};
-
-function getTypeMeta(type) {
-  return TYPE_META[type] || TYPE_META.default;
-}
 
 function formatRelativeTime(dateString) {
   const date = new Date(dateString);
@@ -55,8 +43,6 @@ function groupByDay(notifications) {
 const CATEGORIES = [
   { id: 'all', label: 'Everything' },
   { id: 'unread', label: 'Unread' },
-  { id: 'devotional', label: 'Inspiration' },
-  { id: 'activity', label: 'Activity' },
 ];
 
 export default function NotificationsScreen({ navigation }) {
@@ -68,8 +54,6 @@ export default function NotificationsScreen({ navigation }) {
 
   const filteredNotifications = useMemo(() => {
     if (selectedCategory === 'unread') return notifications.filter(n => !n.read);
-    if (selectedCategory === 'devotional') return notifications.filter(n => n.type === 'devotional' || n.type === 'content');
-    if (selectedCategory === 'activity') return notifications.filter(n => n.type === 'support' || n.type === 'order');
     return notifications;
   }, [notifications, selectedCategory]);
 
@@ -91,15 +75,14 @@ export default function NotificationsScreen({ navigation }) {
 
   return (
     <SafeAreaView style={[styles.canvas, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
-      {/* Immersive Editorial Header */}
       <View style={styles.heroHeader}>
         <View style={styles.heroTopRow}>
-          <Pressable onPress={() => navigation.goBack()} style={[styles.glassButton, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+          <Pressable onPress={() => navigation.goBack()} style={[styles.glassButton, { backgroundColor: colors.surfaceMuted }]}>
             <ArrowLeft size={18} color={colors.text} />
           </Pressable>
           
           {unreadCount > 0 && (
-            <Pressable onPress={markAllAsRead} style={[styles.glassPillButton, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+            <Pressable onPress={markAllAsRead} style={[styles.glassPillButton, { backgroundColor: colors.surfaceMuted }]}>
               <Check size={12} color={colors.primary} strokeWidth={3} />
               <AppText type="semiBold" style={[styles.glassPillText, { color: colors.text }]}>Clear all unread</AppText>
             </Pressable>
@@ -110,7 +93,6 @@ export default function NotificationsScreen({ navigation }) {
           <AppText type="black" style={[styles.heroTitle, { color: colors.text }]}>Updates</AppText>
         </View>
 
-        {/* Floating Capsule Filters */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.capsuleTrack}>
           {CATEGORIES.map((cat) => {
             const isSelected = selectedCategory === cat.id;
@@ -118,7 +100,7 @@ export default function NotificationsScreen({ navigation }) {
               <Pressable
                 key={cat.id}
                 onPress={() => setSelectedCategory(cat.id)}
-                style={[styles.capsule, { backgroundColor: isSelected ? colors.text : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)') }]}
+                style={[styles.capsule, { backgroundColor: isSelected ? colors.text : colors.surfaceMuted }]}
               >
                 <AppText type={isSelected ? 'bold' : 'medium'} style={[styles.capsuleLabel, { color: isSelected ? colors.background : colors.textSecondary }]}>
                   {cat.label}
@@ -129,7 +111,6 @@ export default function NotificationsScreen({ navigation }) {
         </ScrollView>
       </View>
 
-      {/* Asymmetric Feed List */}
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
@@ -143,29 +124,29 @@ export default function NotificationsScreen({ navigation }) {
           </View>
         )}
         renderItem={({ item }) => {
-          const meta = getTypeMeta(item.type);
-          const Icon = meta.icon;
           const isUnread = !item.read;
           const isExpanded = expandedId === item.id;
 
           return (
             <Pressable
               onPress={() => handleItemPress(item)}
-              style={[styles.nodeCard, { backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : colors.card, borderColor: isUnread ? meta.accent : colors.border, borderWidth: isUnread ? 1.5 : 1 }]}
+              style={[styles.nodeCard, { backgroundColor: colors.card, borderColor: isUnread ? colors.primary : colors.border, borderWidth: isUnread ? 1.5 : 1 }]}
             >
-              {isUnread && <View style={[styles.ambientGlow, { backgroundColor: meta.glow }]} />}
+              {isUnread && <View style={[styles.ambientGlow, { backgroundColor: colors.surfaceActive }]} />}
 
               <View style={styles.nodeHeaderRow}>
-                <View style={[styles.glyphContainer, { backgroundColor: meta.glow }]}>
-                  <Icon size={16} color={meta.accent} strokeWidth={2.4} />
+                <View style={[styles.glyphContainer, { backgroundColor: isUnread ? colors.surfaceActive : colors.surfaceMuted }]}>
+                  <BellRing size={16} color={isUnread ? colors.primary : colors.textSecondary} strokeWidth={2.4} />
                 </View>
                 
                 <View style={styles.nodeMetaBlock}>
-                  <AppText type="medium" style={[styles.nodeTypeTag, { color: meta.accent }]}>{item.type.toUpperCase()}</AppText>
+                  <AppText type="medium" style={[styles.nodeTypeTag, { color: isUnread ? colors.primary : colors.textSecondary }]}>
+                    {isUnread ? 'UNREAD' : 'READ'}
+                  </AppText>
                   <AppText type="regular" style={[styles.nodeTimestamp, { color: colors.textSecondary }]}>{formatRelativeTime(item.created_at)}</AppText>
                 </View>
 
-                {isUnread && <View style={[styles.beaconDot, { backgroundColor: meta.accent }]} />}
+                {isUnread && <View style={[styles.beaconDot, { backgroundColor: colors.primary }]} />}
               </View>
 
               <AppText type={isUnread ? 'bold' : 'semiBold'} style={[styles.nodeHeading, { color: colors.text }]} numberOfLines={isExpanded ? undefined : 1}>
@@ -180,7 +161,7 @@ export default function NotificationsScreen({ navigation }) {
 
               {isExpanded && item.deep_link && (
                 <View style={[styles.nodeActionFooter, { borderTopColor: colors.border }]}>
-                  <AppText type="bold" style={[styles.actionPromptText, { color: meta.accent }]}>Tap again to open destination →</AppText>
+                  <AppText type="bold" style={[styles.actionPromptText, { color: colors.primary }]}>Tap again to open destination →</AppText>
                 </View>
               )}
             </Pressable>
@@ -189,7 +170,7 @@ export default function NotificationsScreen({ navigation }) {
         ListEmptyComponent={
           !loading && (
             <View style={styles.nullStateContainer}>
-              <View style={[styles.nullIconNode, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }]}>
+              <View style={[styles.nullIconNode, { backgroundColor: colors.surfaceMuted }]}>
                 <Inbox size={28} color={colors.textSecondary} strokeWidth={1.5} />
               </View>
               <AppText type="bold" style={[styles.nullTitle, { color: colors.text }]}>Silence on the wire</AppText>

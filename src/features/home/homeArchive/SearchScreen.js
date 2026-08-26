@@ -12,11 +12,34 @@ function sanitizeForOr(input) {
   return stripped.replace(/[%_]/g, '\\$&');
 }
 
-const STRICT_NUMERIC = /^\d+$/;
+function extractNumber(input) {
+  const match = input.match(/\d+/);
+  return match ? match[0] : null;
+}
+
+function sortByEpisodeNumber(data, numQuery) {
+  return [...data].sort((a, b) => {
+    const aNum = a.episode_number != null ? String(a.episode_number) : '';
+    const bNum = b.episode_number != null ? String(b.episode_number) : '';
+    const aStarts = aNum.startsWith(numQuery);
+    const bStarts = bNum.startsWith(numQuery);
+    if (aStarts && !bStarts) return -1;
+    if (!aStarts && bStarts) return 1;
+    const aVal = Number(aNum);
+    const bVal = Number(bNum);
+    const aValid = Number.isFinite(aVal);
+    const bValid = Number.isFinite(bVal);
+    if (aValid && bValid) return aVal - bVal;
+    if (aValid) return -1;
+    if (bValid) return 1;
+    return aNum.localeCompare(bNum);
+  });
+}
 
 export function SearchScreen({ navigation, onSelectEpisode }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -71,11 +94,12 @@ export function SearchScreen({ navigation, onSelectEpisode }) {
         .order('created_at', { ascending: false })
         .limit(30);
 
-      const isNumeric = STRICT_NUMERIC.test(queryText.trim());
+      const extractedNumber = extractNumber(queryText.trim());
+      const isPureNumeric = extractedNumber === queryText.trim();
 
-      if (isNumeric) {
+      if (isPureNumeric) {
         query = query.or(
-          `title.ilike.%${safeText}%,category.ilike.%${safeText}%,episode_number.eq.${queryText.trim()}`
+          `title.ilike.%${safeText}%,category.ilike.%${safeText}%,episode_number.eq.${extractedNumber}`
         );
       } else {
         query = query.or(`title.ilike.%${safeText}%,category.ilike.%${safeText}%`);
@@ -87,7 +111,8 @@ export function SearchScreen({ navigation, onSelectEpisode }) {
 
       if (!isMountedRef.current || thisRequestId !== requestIdRef.current) return;
 
-      setResults(data || []);
+      const finalData = extractedNumber ? sortByEpisodeNumber(data || [], extractedNumber) : (data || []);
+      setResults(finalData);
     } catch (err) {
       console.error('Error searching devotionals:', err);
       if (isMountedRef.current && thisRequestId === requestIdRef.current) {
@@ -134,7 +159,7 @@ export function SearchScreen({ navigation, onSelectEpisode }) {
           <View style={styles.coverWrapper}>
             <Image source={coverSource} style={[styles.episodeCover, { backgroundColor: colors.border }]} />
             <View style={styles.textBadge}>
-              <BookOpen color="#ffffff" size={10} />
+              <BookOpen color={colors.onPrimary} size={10} />
             </View>
           </View>
 
@@ -143,7 +168,12 @@ export function SearchScreen({ navigation, onSelectEpisode }) {
               {item.title}
             </AppText>
 
-            <AppText type="regular" style={[styles.seriesSubtitle, { color: colors.textSecondary }]}>
+            <AppText
+              type="regular"
+              style={[styles.seriesSubtitle, { color: colors.textSecondary }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {item.series || 'Estimated Read Time'} • {dynamicReadTime}
             </AppText>
           </View>
@@ -168,7 +198,7 @@ export function SearchScreen({ navigation, onSelectEpisode }) {
       return (
         <View style={styles.centerWrapper}>
           <View style={[styles.emptyContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <AlertCircle color="#ef4444" size={48} strokeWidth={1.5} />
+            <AlertCircle color={colors.primary} size={48} strokeWidth={1.5} />
             <AppText type="bold" style={[styles.emptyTitle, { color: colors.text }]}>
               Search Failed
             </AppText>
@@ -210,7 +240,7 @@ export function SearchScreen({ navigation, onSelectEpisode }) {
       return (
         <View style={styles.centerWrapper}>
           <View style={[styles.emptyContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Search color="#fecaca" size={48} strokeWidth={1.5} />
+            <Search color={colors.primaryMuted} size={48} strokeWidth={1.5} />
             <AppText type="bold" style={[styles.emptyTitle, { color: colors.text }]}>
               No Results Found
             </AppText>
@@ -287,7 +317,7 @@ export function SearchScreen({ navigation, onSelectEpisode }) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) => StyleSheet.create({
   flexOne: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 16, borderBottomWidth: 1, gap: 12 },
   backButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
@@ -300,8 +330,8 @@ const styles = StyleSheet.create({
   episodeCard: { flexDirection: 'row', borderRadius: 20, padding: 12, borderWidth: 1, ...Platform.select({ ios: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.02, shadowRadius: 8 }, android: { elevation: 1 } }) },
   coverWrapper: { position: 'relative' },
   episodeCover: { width: 80, height: 80, borderRadius: 14 },
-  textBadge: { position: 'absolute', bottom: 6, right: 6, width: 20, height: 20, borderRadius: 10, backgroundColor: '#a1a1aa', alignItems: 'center', justifyContent: 'center' },
-  episodeDetails: { flex: 1, marginLeft: 16, justifyContent: 'center' },
+  textBadge: { position: 'absolute', bottom: 6, right: 6, width: 20, height: 20, borderRadius: 10, backgroundColor: colors.tabBarInactive, alignItems: 'center', justifyContent: 'center' },
+  episodeDetails: { flex: 1, marginLeft: 16, justifyContent: 'center', minWidth: 0 },
   seriesSubtitle: { fontSize: 12, marginTop: 2 },
   emptyContainer: { borderRadius: 16, padding: 32, alignItems: 'center', justifyContent: 'center', borderWidth: 1, width: '100%' },
   emptyTitle: { fontSize: 16, marginTop: 12 },
