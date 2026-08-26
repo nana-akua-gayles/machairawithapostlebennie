@@ -122,6 +122,7 @@ const JUNK_TEXT_PATTERNS = [
  /\bBy\b(?=\s*(<a[^>]*>[\s\S]*?<\/a>\s*)?\(Pronounced)/g,
  /\(Pronounced\s*makh['\u2019]-ahee-rah\)\s*Daily\s*revelatory\s*thoughts\s*to\s*sharpen\s*you\s*and\s*to\s*help\s*you\s*grow\s*in\s*deep\s*spiritual\s*understanding\s*and\s*knowledge\.?\s*Daily\s*Christ-centered\s*and\s*apostolic-prophetic\s*prayers\.?/gi,
  /_{5,}/g,
+ /To\s+be\s+a\s+part\s+of\s+the\s+gospel\s+financiers,?\s*send\s+us\s+a\s+mail\s+on\s*(<a[^>]*>[\s\S]*?<\/a>)?\.?/gi,
 ];
 const ANCHOR_SEARCH_WINDOW = 500;
 const KNOWN_AUTHOR_NAME_PREFIX = '(?:Apostle\\s+Bennie|APOSTLE\\s+BENJAMIN\\s+NANA\\s+AMISSAH\\s+ANSAH)\\s+';
@@ -284,8 +285,18 @@ function stripBarePlainTextUrls(html) {
  return result.replace(/[ \t]{2,}/g, ' ');
  }).join('');
 }
+const COMMON_ABBREVIATIONS_WITH_SPACE = ['U.S. ', 'U.K. ', 'B.C. ', 'A.D. ', 'U.N. ', 'D.C. '];
 function fixMissingSentenceSpaces(str) {
- return (str || '').replace(/([.!?])(["'\u201d\u2019]?)(?=[A-Z\u201c])/g, (m, p, q) => `${p}${q} `);
+ const MASK = '\u0002';
+ let masked = str || '';
+ COMMON_ABBREVIATIONS_WITH_SPACE.forEach((abbr, i) => {
+ masked = masked.split(abbr).join(`${MASK}${i}${MASK}`);
+ });
+ let fixed = masked.replace(/([.!?])(["'\u201d\u2019]?)(?=[A-Z\u201c])/g, (m, p, q) => `${p}${q} `);
+ COMMON_ABBREVIATIONS_WITH_SPACE.forEach((abbr, i) => {
+ fixed = fixed.split(`${MASK}${i}${MASK}`).join(abbr);
+ });
+ return fixed;
 }
 function fixGluedWords(str) {
  return (str || '').replace(/(?<![A-Z])\b([a-z]{2,})([A-Z][a-z]+)/g, (m, b, a) => `${b} ${a}`);
@@ -587,7 +598,7 @@ function convertDashLists(text) {
  );
  const listedBoth = convertMarkerRun(
  listedDash,
- /\b(\d{1,2})\.\s(?=[A-Z<])/g,
+ /\b(\d{1,2})\.\s+(?=[A-Z<])/g,
  () => 0,
  (raw) => raw.replace(/^\d{1,2}\.\s*/, ''),
  'ol',
@@ -734,7 +745,7 @@ function groupSentenceChunks(text) {
  offset += (adjEnd - adjStart) - token.length;
  });
  const sentences = working
- .split(/(?<=[.!?:])\s+(?=[A-Z"\u201c(<@])|(?<=@@SCRIPT\d+@@)\s*(?=[A-Za-z"\u201c\u2018])|(?<=[a-zA-Z:])\s*(?=@@SCRIPT\d+@@)/)
+ .split(/(?<=[.!?:])\s+(?=[A-Z"\u201c(@]|<(?!\/))|(?<=@@SCRIPT\d+@@)\s*(?=[A-Za-z"\u201c\u2018])|(?<=[a-zA-Z:])\s*(?=@@SCRIPT\d+@@)/)
  .map((s) => s.trim())
  .filter(Boolean);
  const chunks = [];

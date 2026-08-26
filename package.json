@@ -5,6 +5,7 @@
     "main": "index.js",
     "scripts": {
       "postinstall": "patch-package",
+      "eas-build-post-install": "patch-package",
       "start": "expo start",
       "android": "expo run:android",
       "ios": "expo run:ios",
