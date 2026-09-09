@@ -1,12 +1,5 @@
 /**
- * PERMANENT REGRESSION SUITE for formatDevotionalHtml.js's extractOpeningScripture
- * and related preamble-stripping logic.
- *
- * Purpose: any time a fix is made to the parser, run this file FIRST against
- * the target module. It must show zero unexpected regressions on the KNOWN
- * GOOD samples, and should move flagged BUGS from their current (wrong)
- * state toward "found" / "found-unquoted" with correct text.
- *
+
  * USAGE:
  *   node regression-suite.js ./src/features/home/formatDevotionalHtml.js
  */

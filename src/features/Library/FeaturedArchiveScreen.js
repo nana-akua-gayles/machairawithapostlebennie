@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -12,114 +12,122 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../../context/ThemeContext";
 import { AppText } from "../../components/AppText";
-import { ArrowLeft, ArrowUpRight, RefreshCw } from "lucide-react-native";
+import { ChevronLeft, ArrowUpRight, RefreshCw } from "lucide-react-native";
 import { supabase } from "../../config/supabaseClient";
 
 const PAGE_SIZE = 20;
+const HERO_COUNT = 3;
 
-// This screen's own palette — a deliberate departure from the app's
-// #e11d48, warmed and deepened so "Featured" reads as a curated, elevated
-// space rather than a re-skinned list screen.
-const INK = "#120303";
-const RED = "#C81E3A";
-const RED_DEEP = "#7A0F22";
-const BLUSH = "#F7E8EA";
-const WARM_GRAY = "#8A7679";
-
-const PANEL_MIN_HEIGHT = 340;
+const INK = "#0E0B0A";
+const VERMILION = "#FF3326";
+const BONE = "#F4F1EA";
+const STONE = "#76716D";
+const BORDER_TONE = "rgba(14, 11, 10, 0.12)";
 
 const dayLabel = (dateStr) => {
   if (!dateStr) return "";
-  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase();
 };
 
-// A plate number, not a sequence marker — the huge ghost numeral behind each
-// panel signals "this is a plate in a collection," the way a fine-art or
-// exhibition catalogue numbers its entries. It carries scale, not order.
+const monthLabel = (dateStr) => {
+  if (!dateStr) return "UNDATED";
+  return new Date(dateStr).toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
+};
+
+const monthKey = (dateStr) => {
+  if (!dateStr) return "undated";
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-${d.getMonth()}`;
+};
+
 const plateNumber = (i) => String(i + 1).padStart(2, "0");
 
-const Panel = ({ item, index, onPress, screenWidth }) => {
-  const alignRight = index % 2 === 1;
-  const revealAnim = useRef(new Animated.Value(0)).current;
-  const [entered, setEntered] = useState(false);
+const buildRows = (list) => {
+  const rows = [];
+  const heroSlice = list.slice(0, HERO_COUNT);
+  const restSlice = list.slice(HERO_COUNT);
 
-  const handleLayout = () => {
-    if (entered) return;
-    setEntered(true);
-    Animated.timing(revealAnim, {
-      toValue: 1,
-      duration: 620,
-      useNativeDriver: false,
-    }).start();
-  };
+  heroSlice.forEach((item, i) => {
+    rows.push({ kind: "hero", key: `hero-${item.id}`, item, index: i });
+  });
 
-  const ruleWidth = revealAnim.interpolate({ inputRange: [0, 1], outputRange: [0, screenWidth - 48] });
-  const contentOpacity = revealAnim.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 0, 1] });
-  const contentTranslate = revealAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
+  if (restSlice.length > 0) {
+    rows.push({ kind: "divider", key: "archive-divider" });
+
+    let lastMonth = null;
+    restSlice.forEach((item) => {
+      const key = monthKey(item.created_at);
+      if (key !== lastMonth) {
+        rows.push({ kind: "month", key: `month-${key}`, label: monthLabel(item.created_at) });
+        lastMonth = key;
+      }
+      rows.push({ kind: "row", key: `row-${item.id}`, item });
+    });
+  }
+
+  return rows;
+};
+
+const HeroBlock = ({ item, index, onPress }) => {
+  const isRight = index % 2 === 1;
 
   return (
-    <View onLayout={handleLayout} style={styles.panelWrap}>
-      <Pressable
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={`Featured: ${item.title}`}
-        style={({ pressed }) => [
-          styles.panel,
-          { minHeight: PANEL_MIN_HEIGHT, opacity: pressed ? 0.88 : 1 },
-        ]}
-      >
-        <AppText
-          type="bold"
-          numberOfLines={1}
-          style={[
-            styles.plateNumeral,
-            alignRight ? styles.plateNumeralRight : styles.plateNumeralLeft,
-          ]}
-        >
-          {plateNumber(index)}
-        </AppText>
-
-        <Animated.View
-          style={[
-            styles.panelContent,
-            alignRight ? styles.panelContentRight : styles.panelContentLeft,
-            { opacity: contentOpacity, transform: [{ translateY: contentTranslate }] },
-          ]}
-        >
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Featured: ${item.title}`}
+      style={({ pressed }) => [styles.heroBlock, { opacity: pressed ? 0.7 : 1 }]}
+    >
+      <View style={[styles.heroHeaderRow, isRight && styles.rowReverse]}>
+        <AppText type="bold" style={styles.heroNumeral}>{plateNumber(index)}</AppText>
+        <View style={styles.heroMetaStack}>
           {item.subtitle ? (
-            <AppText type="bold" style={[styles.eyebrow, alignRight && styles.textRight]}>
-              {item.subtitle.toUpperCase()}
-            </AppText>
+            <AppText type="bold" style={styles.heroSub}>{item.subtitle.toUpperCase()}</AppText>
           ) : null}
+          <AppText style={styles.heroDate}>{dayLabel(item.created_at)}</AppText>
+        </View>
+      </View>
 
-          <AppText
-            type="bold"
-            numberOfLines={4}
-            style={[styles.panelTitle, alignRight && styles.textRight]}
-          >
-            {item.title}
-          </AppText>
+      <AppText type="bold" numberOfLines={3} style={styles.heroTitle}>
+        {item.title}
+      </AppText>
 
-          {item.excerpt ? (
-            <AppText numberOfLines={2} style={[styles.panelExcerpt, alignRight && styles.textRight]}>
-              {item.excerpt}
-            </AppText>
-          ) : null}
+      {item.excerpt ? (
+        <AppText numberOfLines={2} style={styles.heroExcerpt}>
+          {item.excerpt}
+        </AppText>
+      ) : null}
 
-          <View style={[styles.panelFooter, alignRight && styles.panelFooterRight]}>
-            <AppText style={styles.dateText}>{dayLabel(item.created_at)}</AppText>
-            <View style={styles.readMoreRow}>
-              <AppText type="bold" style={styles.readMoreText}>READ</AppText>
-              <ArrowUpRight size={13} color={RED} />
-            </View>
-          </View>
-        </Animated.View>
-      </Pressable>
+      <View style={styles.heroActionRow}>
+        <AppText type="bold" style={styles.heroActionText}>READ</AppText>
+        <ArrowUpRight size={14} color={VERMILION} />
+      </View>
 
-      <Animated.View style={[styles.rule, { width: ruleWidth }]} />
-    </View>
+      <View style={styles.solidRule} />
+    </Pressable>
   );
 };
+
+const ArchiveRow = ({ item, onPress }) => (
+  <Pressable
+    onPress={onPress}
+    accessibilityRole="button"
+    accessibilityLabel={`Archive item: ${item.title}`}
+    style={({ pressed }) => [styles.archiveRow, { opacity: pressed ? 0.6 : 1 }]}
+  >
+    <View style={styles.archiveRowLeft}>
+      <AppText style={styles.archiveDate}>{dayLabel(item.created_at)}</AppText>
+    </View>
+    <View style={styles.archiveRowCenter}>
+      <AppText type="bold" numberOfLines={2} style={styles.archiveTitle}>
+        {item.title}
+      </AppText>
+    </View>
+    <View style={styles.archiveRowRight}>
+      <ArrowUpRight size={13} color={STONE} />
+    </View>
+  </Pressable>
+);
 
 export const FeaturedArchiveScreen = () => {
   const { colors } = useTheme();
@@ -197,123 +205,105 @@ export const FeaturedArchiveScreen = () => {
     fetchFeatured();
   }, [fetchFeatured]);
 
-  const pillOpacity = scrollY.interpolate({ inputRange: [40, 130], outputRange: [0, 1], extrapolate: "clamp" });
-  const pillTranslate = scrollY.interpolate({ inputRange: [40, 130], outputRange: [-8, 0], extrapolate: "clamp" });
-  const heroOpacity = scrollY.interpolate({ inputRange: [0, 90], outputRange: [1, 0], extrapolate: "clamp" });
-  const heroTranslate = scrollY.interpolate({ inputRange: [0, 130], outputRange: [0, -24], extrapolate: "clamp" });
+  const rows = useMemo(() => buildRows(featuredList), [featuredList]);
+
+  const headerOpacity = scrollY.interpolate({ inputRange: [0, 50], outputRange: [1, 0], extrapolate: "clamp" });
+
+  const openArticle = useCallback(
+    (item) => {
+      const initialIndex = featuredList.findIndex((a) => a.id === item.id);
+      navigation.navigate("ArticleDetails", { initialIndex, articlesList: featuredList });
+    },
+    [navigation, featuredList]
+  );
 
   const renderItem = useCallback(
-    ({ item, index }) => (
-      <Panel
-        item={item}
-        index={index}
-        screenWidth={width}
-        onPress={() =>
-          navigation.navigate("ArticleDetails", {
-            initialIndex: index,
-            articlesList: featuredList,
-          })
-        }
-      />
-    ),
-    [navigation, featuredList, width]
+    ({ item: row }) => {
+      if (row.kind === "hero") {
+        return <HeroBlock item={row.item} index={row.index} onPress={() => openArticle(row.item)} />;
+      }
+      if (row.kind === "divider") {
+        return (
+          <View style={styles.sectionDivider}>
+            <View style={styles.dividerBullet} />
+            <AppText type="bold" style={styles.dividerText}>FULL INDEX LOG</AppText>
+            <View style={styles.dividerLine} />
+          </View>
+        );
+      }
+      if (row.kind === "month") {
+        return <AppText type="bold" style={styles.monthLabel}>{row.label}</AppText>;
+      }
+      return <ArchiveRow item={row.item} onPress={() => openArticle(row.item)} />;
+    },
+    [openArticle]
   );
 
   const listHeader = (
-    <Animated.View style={{ opacity: heroOpacity, transform: [{ translateY: heroTranslate }], marginBottom: 8 }}>
-      <View style={styles.heroKicker}>
-        <View style={styles.heroKickerDot} />
-        <AppText type="bold" style={styles.heroKickerText}>THE ARCHIVE</AppText>
-      </View>
-      <AppText type="bold" style={styles.heroTitle}>Featured</AppText>
-      <AppText style={styles.heroSubtitle}>
-        {featuredList.length
-          ? `${featuredList.length} pieces, chosen and set apart.`
-          : "The pieces set apart from the rest."}
-      </AppText>
+    <Animated.View style={[styles.headerContainer, { opacity: headerOpacity }]}>
+      <AppText type="bold" style={styles.headerTitle}>Featured</AppText>
     </Animated.View>
   );
 
   const listEmpty = !loading ? (
     <View style={styles.emptyState}>
       <AppText type="bold" style={styles.emptyTitle}>
-        {errored ? "Couldn't load the archive" : "Nothing featured yet"}
+        {errored ? "Sync Error" : "Empty Registry"}
       </AppText>
       <AppText style={styles.emptySubtitle}>
-        {errored ? "Check your connection and try again." : "Featured pieces will appear here."}
+        {errored ? "Check database connection." : "No records found."}
       </AppText>
       {errored && (
-        <Pressable
-          onPress={handleRefresh}
-          style={styles.retryButton}
-          accessibilityRole="button"
-          accessibilityLabel="Retry loading the featured archive"
-        >
-          <RefreshCw size={14} color="#FFFFFF" />
-          <AppText type="bold" style={styles.retryText}>Retry</AppText>
+        <Pressable onPress={handleRefresh} style={styles.retryButton}>
+          <RefreshCw size={13} color="#FFFFFF" />
+          <AppText type="bold" style={styles.retryText}>Reload</AppText>
         </Pressable>
       )}
     </View>
   ) : null;
 
   return (
-    <View style={[styles.container, { backgroundColor: "#FFFFFF" }]}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.pillHeader,
-          { paddingTop: insets.top, opacity: pillOpacity, transform: [{ translateY: pillTranslate }] },
-        ]}
-      >
-        <AppText type="bold" style={styles.pillTitle}>FEATURED ARCHIVE</AppText>
-      </Animated.View>
-
+    <View style={[styles.container, { backgroundColor: BONE }]}>
       <Pressable
         onPress={() => navigation.goBack()}
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        style={({ pressed }) => [
-          styles.backButton,
-          { top: insets.top + 12, transform: [{ scale: pressed ? 0.94 : 1 }] },
-        ]}
+        style={({ pressed }) => [styles.backButton, { top: insets.top + 10, opacity: pressed ? 0.6 : 1 }]}
       >
-        <ArrowLeft size={16} color={INK} />
+        <ChevronLeft size={16} color={INK} />
       </Pressable>
 
       {loading ? (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="small" color={RED} />
+          <ActivityIndicator size="small" color={VERMILION} />
         </View>
       ) : (
         <Animated.FlatList
-          data={featuredList}
-          keyExtractor={(item) => item.id.toString()}
+          data={rows}
+          keyExtractor={(row) => row.key}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
             styles.listContent,
-            { paddingTop: insets.top + 84 },
-            featuredList.length === 0 && styles.listContentEmpty,
+            { paddingTop: insets.top + 52 },
+            rows.length === 0 && styles.listContentEmpty,
           ]}
           ListHeaderComponent={listHeader}
           ListEmptyComponent={listEmpty}
-          onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-            useNativeDriver: true,
-          })}
+          onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
           scrollEventThrottle={16}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.6}
           overScrollMode="never"
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={RED} colors={[RED]} />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={VERMILION} colors={[VERMILION]} />}
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color={RED} />
+                <ActivityIndicator size="small" color={VERMILION} />
               </View>
             ) : null
           }
           renderItem={renderItem}
+          windowSize={7}
         />
       )}
     </View>
@@ -323,94 +313,51 @@ export const FeaturedArchiveScreen = () => {
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
-  pillHeader: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 20,
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: BLUSH,
-    alignItems: "center",
-    justifyContent: "flex-end",
-    paddingBottom: 14,
-  },
-  pillTitle: { fontSize: 11, letterSpacing: 3, color: RED },
-
   backButton: {
     position: "absolute",
-    left: 24,
+    left: 20,
     zIndex: 30,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: BLUSH,
-    backgroundColor: "#FFFFFF",
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(14, 11, 10, 0.05)",
     alignItems: "center",
     justifyContent: "center",
   },
-
   loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-
-  listContent: { paddingBottom: 80 },
+  listContent: { paddingBottom: 80, paddingHorizontal: 20 },
   listContentEmpty: { flexGrow: 1 },
-
-  heroKicker: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 24, marginBottom: 14 },
-  heroKickerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: RED },
-  heroKickerText: { fontSize: 11, letterSpacing: 3, color: RED },
-  heroTitle: {
-    fontSize: 52,
-    lineHeight: 54,
-    letterSpacing: -1.6,
-    color: INK,
-    paddingHorizontal: 24,
-    marginBottom: 10,
-  },
-  heroSubtitle: { fontSize: 15, color: WARM_GRAY, paddingHorizontal: 24, marginBottom: 12, letterSpacing: 0.1 },
-
-  panelWrap: { width: "100%" },
-  panel: {
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 36,
-    overflow: "hidden",
-  },
-  plateNumeral: {
-    position: "absolute",
-    top: -18,
-    fontSize: 168,
-    lineHeight: 168,
-    color: BLUSH,
-    letterSpacing: -6,
-  },
-  plateNumeralLeft: { left: 8 },
-  plateNumeralRight: { right: 8 },
-
-  panelContent: { maxWidth: "84%" },
-  panelContentLeft: { alignSelf: "flex-start" },
-  panelContentRight: { alignSelf: "flex-end" },
-  textRight: { textAlign: "right" },
-
-  eyebrow: { fontSize: 11, letterSpacing: 2, color: RED, marginBottom: 10 },
-  panelTitle: { fontSize: 29, lineHeight: 35, letterSpacing: -0.8, color: INK, marginBottom: 10 },
-  panelExcerpt: { fontSize: 14.5, lineHeight: 21, color: WARM_GRAY, marginBottom: 18 },
-
-  panelFooter: { flexDirection: "row", alignItems: "center", gap: 14 },
-  panelFooterRight: { flexDirection: "row-reverse" },
-  dateText: { fontSize: 12, letterSpacing: 0.6, color: WARM_GRAY },
-  readMoreRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  readMoreText: { fontSize: 11, letterSpacing: 1.5, color: RED },
-
-  rule: { height: 2, backgroundColor: RED, alignSelf: "center", borderRadius: 1, marginBottom: 4 },
-
-  footerLoader: { paddingVertical: 32, alignItems: "center" },
-
-  emptyState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40, gap: 6 },
-  emptyTitle: { fontSize: 17, color: INK },
-  emptySubtitle: { fontSize: 14, textAlign: "center", color: WARM_GRAY },
-  retryButton: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 18, paddingHorizontal: 18,
-    paddingVertical: 11, borderRadius: 24, backgroundColor: RED_DEEP,  },
-  retryText: { fontSize: 13, color: "#FFFFFF" },
+  headerContainer: { marginBottom: 24 },
+  headerTitle: { fontSize: 38, lineHeight: 40, letterSpacing: -1.2, color: INK, marginBottom: 4 },
+  headerSub: { fontSize: 13, color: STONE, letterSpacing: -0.1 },
+  heroBlock: { paddingVertical: 22, },
+  heroHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10},
+  rowReverse: { flexDirection: "row-reverse"},
+  heroNumeral: { fontSize: 24, lineHeight: 24, letterSpacing: -1, color: VERMILION },
+  heroMetaStack: { alignItems: "flex-end" },
+  heroSub: { fontSize: 9.5, letterSpacing: 2, color: STONE, marginBottom: 2 },
+  heroDate: { fontSize: 10, color: STONE, letterSpacing: 0.5 },
+  heroTitle: { fontSize: 21, lineHeight: 26, letterSpacing: -0.6, color: INK, marginBottom: 8 },
+  heroExcerpt: { fontSize: 13, lineHeight: 18, color: STONE, marginBottom: 14 },
+  heroActionRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 18,},
+  heroActionText: { fontSize: 10, letterSpacing: 1.5, color: VERMILION },
+  solidRule: { height: 1, backgroundColor: BORDER_TONE, width: "100%" },
+  sectionDivider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 24,},
+  dividerBullet: { width: 4, height: 4, borderRadius: 2, backgroundColor: VERMILION },
+  dividerText: { fontSize: 10, letterSpacing: 2, color: INK },
+  dividerLine: { flex: 1, height: 1, backgroundColor: BORDER_TONE },
+  monthLabel: { fontSize: 10, letterSpacing: 2, color: STONE, marginBottom: 8, marginTop: 6,},
+  archiveRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: BORDER_TONE,
+    gap: 12 },
+  archiveRowLeft: { width: 56 },
+  archiveDate: { fontSize: 10, color: STONE, letterSpacing: 0.5 },
+  archiveRowCenter: { flex: 1 },
+  archiveTitle: { fontSize: 13.5, lineHeight: 18, letterSpacing: -0.2, color: INK },
+  archiveRowRight: { width: 20, alignItems: "flex-end" },
+  footerLoader: { paddingVertical: 24, alignItems: "center" },
+  emptyState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40, gap: 6, marginTop: 80 },
+  emptyTitle: { fontSize: 15, color: INK, letterSpacing: -0.2 },
+  emptySubtitle: { fontSize: 13, textAlign: "center", color: STONE },
+  retryButton: { marginTop: 12, paddingHorizontal: 18, paddingVertical: 9, backgroundColor: INK, borderRadius: 14,},
+  retryText: { fontSize: 12, color: "#FFFFFF", letterSpacing: 0.5 },
 });

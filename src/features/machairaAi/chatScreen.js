@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from '
 import { View, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity, FlatList, Keyboard, ActivityIndicator, Image, useWindowDimensions } from 'react-native';
 import { ArrowUp, BookOpen, Heart, Calendar, MessageCircle, Lightbulb, Zap, X, SlidersHorizontal, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { useFocusEffect } from '@react-navigation/native';
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useFocusEffect } from "@react-navigation/native";
 import { AppText } from '../../components/AppText';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,10 +18,6 @@ const RESPONSE_STYLES = [
   { key: 'standard', label: 'Standard' },
   { key: 'deep', label: 'Deep Dive' },
 ];
-
-// Strips characters that have special meaning in PostgREST filter syntax
-// (comma, parens, %, *) so user-typed text can't alter or break the query.
-const sanitizeForFilter = (str) => str.replace(/[,()%*]/g, '').trim();
 
 const withTimeout = (promise, ms) => {
   return Promise.race([
@@ -161,7 +157,6 @@ export default function AIChatScreen({ navigation }) {
   const [responseStyle, setResponseStyle] = useState('standard');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
-  const usedEpisodeIdsRef = useRef(new Set());
 
   // Tracks the previously loaded user so we can tell a real account switch
   // apart from the very first load of the screen (where messages is
@@ -242,7 +237,6 @@ export default function AIChatScreen({ navigation }) {
       setIsMultiSelectMode(false);
       setSelectedMessageIndices([]);
       setShowClearAllConfirm(false);
-      usedEpisodeIdsRef.current.clear();
 
       if (isRealUserSwitch) {
         // Prevents the previous account's messages from being visible even
@@ -435,66 +429,18 @@ export default function AIChatScreen({ navigation }) {
         return;
       }
 
-      let matches = [];
-
-      if (question.startsWith('Companion: ')) {
-        const categoryQuery = sanitizeForFilter(question.replace('Companion: ', ''));
-        const { data, error } = await supabase
-          .from('devotionals')
-          .select('id, title, category, episode_number, pure_content')
-          .ilike('category', `%${categoryQuery}%`)
-          .limit(15);
-        if (error) console.error('Category query error:', error);
-        matches = data || [];
-      } else {
-        const stopWords = new Set(['tell', 'about', 'what', 'how', 'why', 'the', 'and', 'for', 'with', 'from', 'that', 'this', 'is', 'in', 'are', 'can']);
-        const searchWords = question
-          .replace(/[^\w\s]/gi, '')
-          .split(/\s+/)
-          .map(w => w.trim())
-          .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()));
-
-        const rawKeyword = searchWords[0] || question.trim().split(/\s+/)[0] || '';
-        const primaryKeyword = sanitizeForFilter(rawKeyword);
-
-        if (primaryKeyword) {
-          const { data, error } = await supabase
-            .from('devotionals')
-            .select('id, title, category, episode_number, pure_content')
-            .or(`title.ilike.%${primaryKeyword}%,pure_content.ilike.%${primaryKeyword}%,category.ilike.%${primaryKeyword}%`)
-            .limit(15);
-          if (error) console.error('Keyword query error:', error);
-          matches = data || [];
-        }
-      }
-
-      if (!matches || matches.length === 0) {
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('devotionals')
-          .select('id, title, category, episode_number, pure_content')
-          .order('episode_number', { ascending: false })
-          .limit(15);
-        if (fallbackError) console.error('Fallback query error:', fallbackError);
-        matches = fallbackData || [];
-      }
-
-      let freshMatches = matches.filter(m => !usedEpisodeIdsRef.current.has(m.id));
-      if (freshMatches.length === 0) {
-        usedEpisodeIdsRef.current.clear();
-        freshMatches = matches;
-      }
-
-      const selectedMatches = freshMatches.sort(() => 0.5 - Math.random()).slice(0, 3);
-      selectedMatches.forEach(m => usedEpisodeIdsRef.current.add(m.id));
-
-      const contextText = selectedMatches.length > 0
-        ? selectedMatches.map(m => `[Episode ${m.episode_number || 'N/A'}] Title: ${m.title}\nCategory: ${m.category}\nContent: ${m.pure_content ? m.pure_content.substring(0, 3000) : ''}...`).join('\n\n====================\n\n')
-        : 'Referenced Machaira Episodes.';
+      // Retrieval (keyword search, scoring, and random selection) has moved
+      // server-side into the gemini-chat edge function, which embeds the
+      // question and runs a real pgvector similarity search via
+      // match_devotionals. We only need to tell it whether this was a
+      // "Companion:" quick-prompt category browse or a free-form question.
+      const isCompanionPrompt = question.startsWith('Companion: ');
+      const category = isCompanionPrompt ? question.replace('Companion: ', '') : undefined;
 
       const recentMessages = updatedMessages.slice(-6).map(m => ({ role: m.role, content: m.content }));
 
       const invokePromise = supabase.functions.invoke('gemini-chat', {
-        body: { question, userName, contextText, recentMessages, responseStyle },
+        body: { question, userName, category, recentMessages, responseStyle },
       });
 
       const { data: fnData, error: fnError } = await withTimeout(invokePromise, REQUEST_TIMEOUT_MS);

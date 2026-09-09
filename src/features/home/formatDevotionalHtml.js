@@ -88,7 +88,15 @@ function matchCapsTitleRun(text) {
  while (end < text.length) {
  const ch = text[end];
  if (/\s/.test(ch)) break;
- if (QUOTE_CHARS.has(ch) && !isWordInternalApostrophe(text, end)) break;
+ if (QUOTE_CHARS.has(ch) && !isWordInternalApostrophe(text, end)) {
+ const restOfText = text.slice(end);
+ const quoteWordMatch = restOfText.match(/^(["'\u201c\u2018])([A-Z][A-Z']*)(["'\u201d\u2019])/);
+ if (quoteWordMatch) {
+ end += quoteWordMatch[0].length;
+ continue;
+ }
+ break;
+ }
  end++;
  }
  if (end === start) break;
@@ -419,9 +427,10 @@ const closeRe = /["'\u2018\u201c\u201d\u2019]/g;
  const idx = closeCandidates[i];
  const candidate = findScriptureReference(afterQuote.slice(idx + 1));
  if (candidate && candidate.index <= 40) {
+ if (!found || candidate.index < found.index) {
  found = candidate;
  usedCloseIdx = idx;
- break;
+ }
  }
  }
  if (found) {
@@ -610,13 +619,19 @@ function convertMarkerRun(text, markerRe, matchOffset, stripMarker, tag, maxGap 
  const markers = [];
  let m;
  while ((m = markerRe.exec(text))) {
- markers.push({ start: m.index + matchOffset(m), end: m.index + m[0].length });
+ const num = m[1] && /^\d+$/.test(m[1]) ? parseInt(m[1], 10) : null;
+ markers.push({ start: m.index + matchOffset(m), end: m.index + m[0].length, num });
  }
  if (markers.length < 2) return text;
  const runs = [];
  let current = [markers[0]];
  for (let i = 1; i < markers.length; i++) {
- if (markers[i].start - markers[i - 1].start <= maxGap) {
+ const withinGap = markers[i].start - markers[i - 1].start <= maxGap;
+ const isSequenceReset =
+ markers[i].num !== null &&
+ markers[i - 1].num !== null &&
+ markers[i].num <= markers[i - 1].num;
+ if (withinGap && !isSequenceReset) {
  current.push(markers[i]);
  } else {
  if (current.length >= 2) runs.push(current);
@@ -625,21 +640,31 @@ function convertMarkerRun(text, markerRe, matchOffset, stripMarker, tag, maxGap 
  }
  if (current.length >= 2) runs.push(current);
  if (runs.length === 0) return text;
- let result = text;
- runs.slice().reverse().forEach((run) => {
+
+ const replacements = [];
+ const runLastItemEnds = [];
+
+ runs.forEach((run, runIndex) => {
  const firstMarker = run[0].start;
  const lastMarkerEnd = run[run.length - 1].end;
- const afterLastMarker = result.slice(lastMarkerEnd);
+ const nextRunFirstMarker = runIndex + 1 < runs.length ? runs[runIndex + 1][0].start : text.length;
+ const afterLastMarker = text.slice(lastMarkerEnd, nextRunFirstMarker);
  const endMatch = afterLastMarker.match(/[.!?](?=\s+[A-Z]|\s*$)/);
- const lastItemEnd = endMatch ? lastMarkerEnd + endMatch.index + 1 : result.length;
- const before = result.slice(0, firstMarker);
+ const lastItemEnd = endMatch ? lastMarkerEnd + endMatch.index + 1 : nextRunFirstMarker;
+ runLastItemEnds.push(lastItemEnd);
+ const before = text.slice(0, firstMarker);
  const colonIdx = before.lastIndexOf(':');
- const introEnd = colonIdx !== -1 && firstMarker - colonIdx < 150 ? colonIdx + 1 : firstMarker;
- const intro = result.slice(0, introEnd).trim();
- const listBlock = result.slice(introEnd, lastItemEnd);
+ const previousRunEnd = runIndex > 0 ? runLastItemEnds[runIndex - 1] : -1;
+ const introEnd =
+ colonIdx !== -1 && colonIdx >= previousRunEnd && firstMarker - colonIdx < 150
+ ? colonIdx + 1
+ : firstMarker;
+
+ const listBlock = text.slice(introEnd, lastItemEnd);
  const localMarkers = run
  .map((mk) => mk.start - introEnd)
  .filter((idx) => idx >= 0 && idx <= listBlock.length);
+
  const anchorSpans = [];
  const anchorRe = /<a\b[^>]*>[\s\S]*?<\/a>/gi;
  let am;
@@ -652,6 +677,7 @@ function convertMarkerRun(text, markerRe, matchOffset, stripMarker, tag, maxGap 
  if (wouldTearAnchor) {
  return;
  }
+
  const items = [];
  for (let i = 0; i < localMarkers.length; i++) {
  const start = localMarkers[i];
@@ -661,12 +687,32 @@ function convertMarkerRun(text, markerRe, matchOffset, stripMarker, tag, maxGap 
  if (cleaned) items.push(cleaned);
  }
  if (items.length < 2) return;
+
  const listHtml = `<${tag}>${items.map((i) => `<li>${i}</li>`).join('')}</${tag}>`;
- const after = result.slice(lastItemEnd);
- result = `${intro} ${listHtml}${after}`;
+
+ replacements.push({ start: introEnd, end: lastItemEnd, html: listHtml });
+ });
+
+ if (replacements.length === 0) return text;
+
+ replacements.sort((a, b) => a.start - b.start);
+ const safeReplacements = [];
+ let lastEnd = -1;
+ replacements.forEach((r) => {
+ if (r.start < lastEnd) {
+ return;
+ }
+ safeReplacements.push(r);
+ lastEnd = r.end;
+ });
+
+ let result = text;
+ safeReplacements.slice().reverse().forEach(({ start, end, html }) => {
+ result = result.slice(0, start) + ' ' + html + result.slice(end);
  });
  return result;
 }
+
 function splitBlocks(html) {
  return html
  .split(

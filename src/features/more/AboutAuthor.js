@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView, Image, Pressable, StatusBar } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '../../components/AppText';
 import { ChevronLeft } from 'lucide-react-native';

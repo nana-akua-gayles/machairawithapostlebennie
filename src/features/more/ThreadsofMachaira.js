@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, ActivityIndicator, Pressable, ScrollView, Animated } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CheckCircle2, XCircle, Flame, Trophy, RotateCcw, ArrowRight, AlertTriangle } from 'lucide-react-native';
+import { CheckCircle2, XCircle, Trophy, RotateCcw, ArrowRight, AlertTriangle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { Audio } from 'expo-audio';
+import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { supabase } from '../../config/supabaseClient';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -34,28 +34,34 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
   const trophyBounce = useRef(new Animated.Value(0)).current;
-  const soundRef = useRef(null);
   const mountedRef = useRef(true);
+
+  const player = useAudioPlayer(require('../../../assets/audio/gameS1.mp3'));
 
   useEffect(() => {
     mountedRef.current = true;
     let cancelled = false;
-    const playBackgroundMusic = async () => {
+
+    const setupAndPlay = async () => {
       try {
-        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false, shouldDuckAndroid: true });
-        const { sound } = await Audio.Sound.createAsync(require('../../../assets/audio/gameS1.mp3'), { isLooping: true, volume: 0.1 });
-        if (cancelled) { sound.unloadAsync().catch(() => {}); return; }
-        soundRef.current = sound;
-        await sound.playAsync();
-      } catch (error) { console.error('Error loading background music:', error); }
+        await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false, interruptionMode: 'duckOthers' });
+        if (cancelled) return;
+        player.loop = true;
+        player.volume = 0.1;
+        player.play();
+      } catch (error) {
+        console.error('Error setting up background music:', error);
+      }
     };
-    playBackgroundMusic();
+
+    setupAndPlay();
+
     return () => {
       mountedRef.current = false;
       cancelled = true;
-      if (soundRef.current) { soundRef.current.unloadAsync().catch(() => {}); soundRef.current = null; }
+      try { player.pause(); } catch (_e) {}
     };
-  }, []);
+  }, [player]);
 
   const startAttempt = useCallback(async () => {
     setLoading(true);
@@ -188,7 +194,6 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
     return (
       <SafeAreaView style={s.container}>
         <View style={s.center}>
-          <View style={s.emptyBadge}><Flame size={24} color={RUBRIC} /></View>
           <AppText type="bold" style={s.emptyTitle}>STAGE 0{stageNumber || 1}</AppText>
           <AppText style={s.emptyText}>No questions dropped for this stage yet. Stay tuned.</AppText>
         </View>
@@ -250,12 +255,10 @@ export const ThreadsofMachaira = ({ navigation, route }) => {
       <Animated.View style={[s.innerContainer, { transform: [{ translateY: slideAnim }] }]}>
         <View style={s.headerRow}>
           <View style={s.stageTag}>
-            <Flame size={12} color={RUBRIC} />
             <AppText type="bold" style={s.stageTagText}>STAGE 0{stageNumber || 1}</AppText>
           </View>
           {streak >= 2 && (
             <View style={s.streakTag}>
-              <Flame size={12} color={RUBRIC} />
               <AppText type="bold" style={s.streakTagText}>{streak} STREAK</AppText>
             </View>
           )}

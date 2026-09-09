@@ -11,6 +11,7 @@ import { useFonts, Montserrat_400Regular, Montserrat_600SemiBold, Montserrat_700
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PaystackProvider } from "react-native-paystack-webview";
 import { supabase } from "./src/config/supabaseClient";
 import { AppText } from "./src/components/AppText";
 import { OnboardingScreen } from "./src/features/onboarding/OnboardingScreen";
@@ -96,9 +97,37 @@ function BaseTabNavigator({ route, navigation, user, onLogout, onTriggerLogin, o
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const [profileVisible, setProfileVisible] = useState(false);
+  const [userStats, setUserStats] = useState({ streakCount: 0, savedCount: 0 });
   const activeUserContext = useMemo(() => user, [user]);
   const tabIconColor = isDark ? "#ffffff" : colors.primary;
   const tabIconInactiveColor = isDark ? "#ffffff" : colors.tabBarInactive;
+
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchLiveStats() {
+      if (!user?.id) return;
+      try {
+        const [profileRes, savedRes] = await Promise.all([
+          supabase.from("profiles").select("current_streak").eq("id", user.id).single(),
+          supabase.from("saved_devotionals").select("*", { count: "exact", head: true }).eq("user_id", user.id),
+        ]);
+
+        if (isMounted) {
+          setUserStats({
+            streakCount: profileRes.data?.current_streak || 0,
+            savedCount: savedRes.count || 0,
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to fetch live profile stats:", err);
+      }
+    }
+
+    if (profileVisible) {
+      fetchLiveStats();
+    }
+    return () => { isMounted = false; };
+  }, [profileVisible, user?.id]);
 
   const renderIcon = useCallback((IconComponent, focused, color) => (
     <View style={styles.iconContainer}>
@@ -150,7 +179,19 @@ function BaseTabNavigator({ route, navigation, user, onLogout, onTriggerLogin, o
     >
       <Tab.Screen name="Home" options={{ tabBarIcon: ({ color, focused }) => renderIcon(Home, focused, color) }}>
         {(props) => (
-          <MemoizedHomeScreen {...props} user={activeUserContext} profileVisible={profileVisible} setProfileVisible={setProfileVisible} onLogout={onLogout} onTriggerLogin={onTriggerLogin} onChangeAccount={onChangeAccount} onDeleteAccount={onDeleteAccount} onNavigateToSupport={handleSupportNavigation} onNavigateToMenuOption={handleMenuOption} />
+          <MemoizedHomeScreen 
+            {...props} 
+            user={activeUserContext} 
+            stats={userStats}
+            profileVisible={profileVisible} 
+            setProfileVisible={setProfileVisible} 
+            onLogout={onLogout} 
+            onTriggerLogin={onTriggerLogin} 
+            onChangeAccount={onChangeAccount} 
+            onDeleteAccount={onDeleteAccount} 
+            onNavigateToSupport={handleSupportNavigation} 
+            onNavigateToMenuOption={handleMenuOption} 
+          />
         )}
       </Tab.Screen>
 
@@ -413,69 +454,71 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <View style={styles.flexOne} onLayout={onLayoutRootView}>
-          <ThemeProvider>
-            <AudioProvider>
-              <ThemeAwareNavigation>
-                <StatusBar barStyle="default" />
-                <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_bottom" }}>
-                  {!hasCompletedOnboarding ? (
-                    <Stack.Screen name="Onboarding">
-                      {(props) => (
-                        <OnboardingScreen {...props} onExploreAsGuest={handleExploreAsGuest} onAuthSuccess={handleAuthSuccess} isReturningFromGuest={!!authenticatedUser?.isLoggedOut} savedUserContext={authenticatedUser || null} />
-                      )}
-                    </Stack.Screen>
-                  ) : (
-                    <React.Fragment>
-                      <Stack.Screen name="MainTabs">
+        <PaystackProvider publicKey={process.env.EXPO_PUBLIC_PAYSTACK_PUBLIC_KEY}>
+          <View style={styles.flexOne} onLayout={onLayoutRootView}>
+            <ThemeProvider>
+              <AudioProvider>
+                <ThemeAwareNavigation>
+                  <StatusBar barStyle="default" />
+                  <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_bottom" }}>
+                    {!hasCompletedOnboarding ? (
+                      <Stack.Screen name="Onboarding">
                         {(props) => (
-                          <MemoizedBaseTabNavigator {...props} user={authenticatedUser} onLogout={handleGlobalLogout} onTriggerLogin={handleTriggerLogin} onChangeAccount={handleSwitchToNewAccount} onDeleteAccount={handleAccountDeletion} />
+                          <OnboardingScreen {...props} onExploreAsGuest={handleExploreAsGuest} onAuthSuccess={handleAuthSuccess} isReturningFromGuest={!!authenticatedUser?.isLoggedOut} savedUserContext={authenticatedUser || null} />
                         )}
                       </Stack.Screen>
-                      <Stack.Screen name="SupportFeedback" component={SupportFeedbackScreen} />
-                      <Stack.Screen name="MyNotes" component={MemoizedMyNotes} />
-                      <Stack.Screen name="Testimony" component={Testimony} />
-                      <Stack.Screen name="AboutAuthor" component={AboutAuthorScreen} />
-                      <Stack.Screen name="SavedScreen">{(props) => <SavedScreen {...props} user={authenticatedUser} />}</Stack.Screen>
-                      <Stack.Screen name="SearchScreen" component={SearchScreen} />
-                      <Stack.Screen name="FollowUs" component={FollowUsScreen} />
-                      <Stack.Screen name="Devotional" component={Devotional} />
-                      <Stack.Screen name="Settings" component={SettingsScreen} />
-                      <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
-                      <Stack.Screen name="Version" component={VersionScreen} />
-                      <Stack.Screen name="ContactSupport" component={ContactSupportScreen} />
-                      <Stack.Screen name="ArticleDetails" component={ArticleDetailsScreen} />
-                      <Stack.Screen name="Partner" component={PartnerScreen} />
-                      <Stack.Screen name="PartnershipScreen" component={PartnershipScreen} />
-                      <Stack.Screen name="Community" component={CommunityScreen} />
-                      <Stack.Screen name="BibleTrivia" component={BibleTrivia} />
-                      <Stack.Screen name="GameLeaderboard" component={GameLeaderboard} />
-                      <Stack.Screen name="WordScrambleScreen" component={WordScrambleScreen} />
-                      <Stack.Screen name="WordScrambleStages" component={WordScrambleStages} />
-                      <Stack.Screen name="WordSearchScreen" component={WordSearchScreen} />
-                      <Stack.Screen name="WordSearchStages" component={WordSearchStages} />
-                      <Stack.Screen name="ThreadsStages" component={ThreadsStages} />
-                      <Stack.Screen name="ThreadsofMachaira" component={ThreadsofMachaira} />
-                      <Stack.Screen name="ShortsViewerScreen" component={ShortsViewerScreen} />
-                      <Stack.Screen name="GroupDetailScreen" component={GroupDetailScreen} />
-                      <Stack.Screen name="AllArticles" component={AllArticlesScreen} />
-                      <Stack.Screen name="FeaturedArchive" component={FeaturedArchiveScreen} />
-                      <Stack.Screen name="AllAudio" component={AllAudioScreen} />
-                      <Stack.Screen name="AllStore" component={AllStoreScreen} />
-                      <Stack.Screen name="StoreItemDetails" component={StoreItemDetailsScreen} />
-                      <Stack.Screen name="Notifications" component={NotificationsScreen} />
-                      <Stack.Screen name="fullAlbum" component={FullAlbumScreen} />
-                      <Stack.Screen name="FullDevotionalAudio" component={FullDevotionalAudioScreen} />
-                      <Stack.Screen name="ProfileDetails" component={ProfileDetailsScreen} />
-                      <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-                      <Stack.Screen name="streaks" component={StreakScreen}/>
-                    </React.Fragment>
-                  )}
-                </Stack.Navigator>
-              </ThemeAwareNavigation>
+                    ) : (
+                      <React.Fragment>
+                        <Stack.Screen name="MainTabs">
+                          {(props) => (
+                            <MemoizedBaseTabNavigator {...props} user={authenticatedUser} onLogout={handleGlobalLogout} onTriggerLogin={handleTriggerLogin} onChangeAccount={handleSwitchToNewAccount} onDeleteAccount={handleAccountDeletion} />
+                          )}
+                        </Stack.Screen>
+                        <Stack.Screen name="SupportFeedback" component={SupportFeedbackScreen} />
+                        <Stack.Screen name="MyNotes" component={MemoizedMyNotes} />
+                        <Stack.Screen name="Testimony" component={Testimony} />
+                        <Stack.Screen name="AboutAuthor" component={AboutAuthorScreen} />
+                        <Stack.Screen name="SavedScreen">{(props) => <SavedScreen {...props} user={authenticatedUser} />}</Stack.Screen>
+                        <Stack.Screen name="SearchScreen" component={SearchScreen} />
+                        <Stack.Screen name="FollowUs" component={FollowUsScreen} />
+                        <Stack.Screen name="Devotional" component={Devotional} />
+                        <Stack.Screen name="Settings" component={SettingsScreen} />
+                        <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+                        <Stack.Screen name="Version" component={VersionScreen} />
+                        <Stack.Screen name="ContactSupport" component={ContactSupportScreen} />
+                        <Stack.Screen name="ArticleDetails" component={ArticleDetailsScreen} />
+                        <Stack.Screen name="Partner" component={PartnerScreen} />
+                        <Stack.Screen name="PartnershipScreen" component={PartnershipScreen} />
+                        <Stack.Screen name="Community" component={CommunityScreen} />
+                        <Stack.Screen name="BibleTrivia" component={BibleTrivia} />
+                        <Stack.Screen name="GameLeaderboard" component={GameLeaderboard} />
+                        <Stack.Screen name="WordScrambleScreen" component={WordScrambleScreen} />
+                        <Stack.Screen name="WordScrambleStages" component={WordScrambleStages} />
+                        <Stack.Screen name="WordSearchScreen" component={WordSearchScreen} />
+                        <Stack.Screen name="WordSearchStages" component={WordSearchStages} />
+                        <Stack.Screen name="ThreadsStages" component={ThreadsStages} />
+                        <Stack.Screen name="ThreadsofMachaira" component={ThreadsofMachaira} />
+                        <Stack.Screen name="ShortsViewerScreen" component={ShortsViewerScreen} />
+                        <Stack.Screen name="GroupDetailScreen" component={GroupDetailScreen} />
+                        <Stack.Screen name="AllArticles" component={AllArticlesScreen} />
+                        <Stack.Screen name="FeaturedArchive" component={FeaturedArchiveScreen} />
+                        <Stack.Screen name="AllAudio" component={AllAudioScreen} />
+                        <Stack.Screen name="AllStore" component={AllStoreScreen} />
+                        <Stack.Screen name="StoreItemDetails" component={StoreItemDetailsScreen} />
+                        <Stack.Screen name="Notifications" component={NotificationsScreen} />
+                        <Stack.Screen name="fullAlbum" component={FullAlbumScreen} />
+                        <Stack.Screen name="FullDevotionalAudio" component={FullDevotionalAudioScreen} />
+                        <Stack.Screen name="ProfileDetails" component={ProfileDetailsScreen} />
+                        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+                        <Stack.Screen name="streaks" component={StreakScreen}/>
+                      </React.Fragment>
+                    )}
+                  </Stack.Navigator>
+                </ThemeAwareNavigation>
               </AudioProvider>
-          </ThemeProvider>
-        </View>
+            </ThemeProvider>
+          </View>
+        </PaystackProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
   );
@@ -488,10 +531,7 @@ const styles = StyleSheet.create({
   footer: { flexDirection: "row", backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: "#f1f5f9", position: "absolute", bottom: 0, left: 0, right: 0, overflow: "visible", ...Platform.select({ ios: { shadowColor: "#0f172a", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.03, shadowRadius: 10 }, android: { elevation: 8 } }) },
   iconContainer: { alignItems: "center", justifyContent: "center", position: "relative" },
   minimalDot: { width: 4, height: 4, borderRadius: 2, position: "absolute", bottom: -6 },
-  navButtonAI: { justifyContent: "flex-start", alignItems: "center" },
-  navButtonAIFocused: { transform: [{ scale: 1.05 }] },
   aiIconAnchor: { width: 64, height: 54, borderRadius: 29, alignItems: "center", justifyContent: "center", borderColor: "#fff", ...Platform.select({ ios: { shadowColor: "#ef4444", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 4 }, android: { elevation: 4 } }) },
-  aiIconAnchorFocused: { borderWidth: 1 },
   aiNavImage: { width: 32, height: 32, marginBottom: 2},
   aiButtonLabel: { fontSize: 9, letterSpacing: -0.2, textAlign: "center", fontWeight: "900" },
 });

@@ -1,10 +1,10 @@
 import React from "react";
 import { View, StyleSheet, FlatList, Pressable, Dimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../../context/ThemeContext";
 import { AppText } from "../../components/AppText";
-import { ArrowLeft, Play } from "lucide-react-native";
+import { ChevronLeft, Play } from "lucide-react-native";
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 
@@ -28,7 +28,7 @@ export const AllAudioScreen = () => {
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <ArrowLeft size={20} color={colors.text} />
+          <ChevronLeft size={20} color={colors.text} />
         </Pressable>
         <AppText type="bold" style={[styles.headerTitle, { color: colors.text }]}>Audio Messages</AppText>
         <View style={styles.headerPlaceholder} />

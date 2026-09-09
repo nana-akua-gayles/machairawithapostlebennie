@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, ScrollView, Pressable, FlatList, ActivityIndicator, Dimensions } from "react-native";
+import React, { useState, useCallback } from "react";
+import { View, StyleSheet, ScrollView, Pressable, FlatList, ActivityIndicator, Dimensions, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../../context/ThemeContext";
@@ -30,6 +30,8 @@ export const LibraryScreen = () => {
   const navigation = useNavigation();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
 
+  const [refreshing, setRefreshing] = useState(false);
+
   const { 
     data: trendingArticles, 
     isLoading: isArticlesLoading, 
@@ -52,7 +54,8 @@ export const LibraryScreen = () => {
   const { 
     data: featuredArticles, 
     isLoading: isFeaturedLoading, 
-    error: featuredError 
+    error: featuredError,
+    refetch: refetchFeatured
   } = useQuery({
     queryKey: ['featured_articles'],
     queryFn: async () => {
@@ -85,6 +88,19 @@ export const LibraryScreen = () => {
     },
     staleTime: 1000 * 60 * 5,
   });
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refetchArticles(),
+        refetchFeatured(),
+        refetchStore(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchArticles, refetchFeatured, refetchStore]);
 
   const activeFeature = featuredArticles?.find(item => item.is_active) || featuredArticles?.[0];
   const archivedFeatures = featuredArticles?.filter(item => item.id !== activeFeature?.id) || [];
@@ -130,6 +146,14 @@ export const LibraryScreen = () => {
       <ScrollView 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor={colors.primary} 
+            colors={[colors.primary]} 
+          />
+        }
       >
         {activeFeature && (
   <View style={styles.section}>

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { View, StyleSheet, SectionList, Pressable, RefreshControl, ScrollView } from 'react-native';
-import { ArrowLeft, BellRing, Check, Inbox } from 'lucide-react-native';
+import { ChevronLeft, BellRing, Check, Inbox } from 'lucide-react-native';
 import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
@@ -78,7 +78,7 @@ export default function NotificationsScreen({ navigation }) {
       <View style={styles.heroHeader}>
         <View style={styles.heroTopRow}>
           <Pressable onPress={() => navigation.goBack()} style={[styles.glassButton, { backgroundColor: colors.surfaceMuted }]}>
-            <ArrowLeft size={18} color={colors.text} />
+            <ChevronLeft size={18} color={colors.text} />
           </Pressable>
           
           {unreadCount > 0 && (

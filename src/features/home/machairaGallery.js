@@ -3,21 +3,21 @@ import { StyleSheet, View, Image, Pressable, useWindowDimensions, Modal, ScrollV
 import { AppText } from '../../components/AppText';
 import { supabase } from '../../config/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native'; 
+import { useNavigation } from "@react-navigation/native";
 import { File, Directory, Paths } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
+import { BlurView } from 'expo-blur';
 import { useTheme } from '../../context/ThemeContext';
 
 export function MachairaGallery() { 
   const navigation = useNavigation(); 
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const [galleryItems, setGalleryItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
 
-  // Lightbox Modal State
   const [activeIndex, setActiveIndex] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const lightboxScrollRef = useRef(null);
@@ -25,8 +25,7 @@ export function MachairaGallery() {
 
   const horizontalPadding = 20;
   const contentWidth = width - (horizontalPadding * 2);
-  const heroImageHeight = useMemo(() => Math.min(Math.round(contentWidth * 0.9), 380), [contentWidth]);
-  const splitImageHeight = useMemo(() => Math.min(Math.round(contentWidth * 0.55), 240), [contentWidth]);
+  const cardHeight = useMemo(() => Math.min(Math.round(contentWidth * 0.52), 220), [contentWidth]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -39,7 +38,7 @@ export function MachairaGallery() {
           .from('gallery')
           .select('id, image, created_at')
           .order('created_at', { ascending: false })
-          .limit(3);
+          .limit(4);
 
         if (error) throw error;
         if (!isMountedRef.current) return;
@@ -70,9 +69,6 @@ export function MachairaGallery() {
     return () => { isMountedRef.current = false; };
   }, []);
 
-  // Keep the lightbox ScrollView in sync whenever activeIndex changes
-  // (fixes: contentOffset only applies on initial mount, so re-opening
-  // the modal on a different index previously left the scroll position stale)
   useEffect(() => {
     if (activeIndex !== null && lightboxScrollRef.current) {
       lightboxScrollRef.current.scrollTo({ x: activeIndex * width, y: 0, animated: false });
@@ -82,8 +78,6 @@ export function MachairaGallery() {
   const handleOpenFullGallery = () => {
     if (navigation) {
       navigation.navigate('fullAlbum');
-    } else {
-      console.warn('Navigation container context is missing');
     }
   };
 
@@ -99,7 +93,7 @@ export function MachairaGallery() {
           'Permission needed',
           canAskAgain
             ? 'Allow photo library access to save this image.'
-            : 'Photo library access is disabled. Enable it in Settings to save images.',
+            : 'Photo library access is disabled. Enable it in Settings to save images.'
         );
         return;
       }
@@ -109,7 +103,6 @@ export function MachairaGallery() {
         destinationDir.create();
       }
 
-      // Unique filename with timestamp to prevent "Destination already exists" errors
       const uniqueFileName = `machaira_${Date.now()}.jpg`;
       localFile = new File(destinationDir, uniqueFileName);
 
@@ -125,8 +118,6 @@ export function MachairaGallery() {
         Alert.alert('Download failed', 'Something went wrong saving this image. Please try again.');
       }
     } finally {
-      // Clean up the cached copy now that MediaLibrary has its own copy —
-      // avoids unbounded growth of gallery_downloads over repeated downloads.
       try {
         if (localFile?.exists) {
           localFile.delete();
@@ -139,11 +130,9 @@ export function MachairaGallery() {
   };
 
   if (loading || (galleryItems.length === 0 && !fetchError)) {
-    return <View style={[styles.sectionContainer, { height: 100 }]} />;
+    return <View style={[styles.sectionContainer, { height: 120 }]} />;
   }
 
-  // Soft-fail UI: previously errors were swallowed silently with only a
-  // console.error, leaving users looking at an empty gap with no explanation.
   if (fetchError && galleryItems.length === 0) {
     return (
       <View style={[styles.sectionContainer, styles.errorContainer]}>
@@ -154,69 +143,38 @@ export function MachairaGallery() {
 
   return (
     <View style={styles.sectionContainer}>
-      <Pressable 
-        onPress={handleOpenFullGallery} 
-        style={({ pressed }) => [styles.headerWrapper, pressed && styles.pressedState]} 
-        accessibilityRole="button" 
-        accessibilityLabel="Open Machaira Vault gallery archive"
-      >
-        <View style={styles.paddedBlock}>
+      {/* Editorial Header */}
+      <View style={styles.paddedBlock}>
+        <Pressable 
+          onPress={handleOpenFullGallery} 
+          style={({ pressed }) => [styles.headerWrapper, pressed && styles.pressedState]} 
+          accessibilityRole="button" 
+          accessibilityLabel="Open Machaira Vault gallery archive"
+        >
           <View style={styles.headerTopRow}>
             <View style={styles.headerTitleGroup}>
               <View style={styles.liveIndicator} />
-              <AppText numberOfLines={1} ellipsizeMode="tail" style={styles.headerTitle}>SNAPSHOTS</AppText>
+              <AppText style={styles.headerTitle}>GALLERY</AppText>
             </View>
-            <View style={styles.exploreAction}>
-              <AppText numberOfLines={1} ellipsizeMode="tail" style={styles.exploreText}>View Album</AppText>
-              <Ionicons name="arrow-forward" size={12} color={colors.text} />
-            </View>
+            <BlurView intensity={isDark ? 25 : 50} tint={isDark ? 'dark' : 'light'} style={styles.explorePill}>
+              <AppText style={styles.exploreText}>View Archive</AppText>
+              <Ionicons name="arrow-forward" size={11} color={colors.text} />
+            </BlurView>
           </View>
-          <View style={styles.headerRule} />
-        </View>
-      </Pressable>
-
-      {galleryItems[0] && (
-        <Pressable 
-          onPress={() => setActiveIndex(0)} 
-          style={({ pressed }) => [styles.fullBleedHero, { height: heroImageHeight }, pressed && styles.pressedState]}
-          accessibilityRole="button"
-          accessibilityLabel="Open featured vault image in full screen"
-        >
-          <Image source={{ uri: galleryItems[0].imageUrl }} style={styles.image} resizeMode="cover" />
         </Pressable>
-      )}
-
-      <View style={styles.paddedBlock}>
-        <View style={styles.textBridge}>
-          <AppText numberOfLines={2} ellipsizeMode="tail" style={styles.quoteBody}>Moments held in time.</AppText>
-        </View>
       </View>
 
-      <View style={[styles.fullBleedSplitTrack, { paddingHorizontal: horizontalPadding }]}>
-        {galleryItems[1] && (
+      {/* 2x2 Editorial Grid Showcase */}
+      <View style={[styles.gridContainer, { paddingHorizontal: horizontalPadding }]}>
+        {galleryItems.map((item, index) => (
           <Pressable 
-            onPress={() => setActiveIndex(1)} 
-            style={({ pressed }) => [styles.splitFrame, { height: splitImageHeight }, pressed && styles.pressedState]}
-            accessibilityRole="button"
-            accessibilityLabel="Open second vault image in full screen"
+            key={item.id}
+            onPress={() => setActiveIndex(index)} 
+            style={({ pressed }) => [styles.gridCard, { height: cardHeight }, pressed && styles.pressedState]}
           >
-            <Image source={{ uri: galleryItems[1].imageUrl }} style={styles.image} resizeMode="cover" />
+            <Image source={{ uri: item.imageUrl }} style={styles.image} resizeMode="cover" />
           </Pressable>
-        )}
-        {galleryItems[2] && (
-          <Pressable 
-            onPress={() => setActiveIndex(2)} 
-            style={({ pressed }) => [styles.splitFrame, { height: splitImageHeight }, pressed && styles.pressedState]}
-            accessibilityRole="button"
-            accessibilityLabel="Open third vault image in full screen"
-          >
-            <Image source={{ uri: galleryItems[2].imageUrl }} style={styles.image} resizeMode="cover" />
-          </Pressable>
-        )}
-      </View>
-
-      <View style={styles.paddedBlock}>
-        <View style={styles.bottomBorder} />
+        ))}
       </View>
 
       {/* Lightbox Modal */}
@@ -233,22 +191,18 @@ export function MachairaGallery() {
               style={styles.glassButton}
               onPress={() => handleDownload(galleryItems[activeIndex]?.imageUrl)}
               disabled={downloading}
-              accessibilityRole="button"
-              accessibilityLabel="Download image"
             >
               {downloading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Ionicons name="download-outline" size={20} color="#FFFFFF" />
+                <Ionicons name="download-outline" size={18} color="#FFFFFF" />
               )}
             </Pressable>
             <Pressable
               style={styles.glassButton}
               onPress={() => setActiveIndex(null)}
-              accessibilityRole="button"
-              accessibilityLabel="Close full screen view"
             >
-              <Ionicons name="close" size={20} color="#FFFFFF" />
+              <Ionicons name="close" size={18} color="#FFFFFF" />
             </Pressable>
           </View>
 
@@ -264,13 +218,13 @@ export function MachairaGallery() {
                   const newIndex = Math.round(e.nativeEvent.contentOffset.x / width);
                   setActiveIndex(newIndex);
                 }}
-                style={{ width: width, height: height }}
+                style={{ width: width, height: '100%' }}
               >
                 {galleryItems.map((item) => (
-                  <View key={`lb-${item.id}`} style={[styles.lightboxSlide, { width: width, height: height }]}>
+                  <View key={`lb-${item.id}`} style={[styles.lightboxSlide, { width: width }]}>
                     <Image
                       source={{ uri: item.imageUrl }}
-                      style={{ width: width, height: height * 0.8 }}
+                      style={{ width: width - 32, height: width * 1.25 }}
                       resizeMode="contain"
                     />
                   </View>
@@ -278,11 +232,11 @@ export function MachairaGallery() {
               </ScrollView>
 
               <View style={styles.lightboxFooter}>
-                <View style={styles.glassFooterPill}>
-                  <AppText numberOfLines={1} style={styles.lightboxCounterText}>
+                <BlurView intensity={50} tint="dark" style={styles.glassFooterPill}>
+                  <AppText style={styles.lightboxCounterText}>
                     {activeIndex + 1} / {galleryItems.length}
                   </AppText>
-                </View>
+                </BlurView>
               </View>
             </>
           )}
@@ -292,38 +246,29 @@ export function MachairaGallery() {
   );
 }
 
-// Built from the live theme so the gallery matches light/dark mode.
-// The lightbox itself stays near-black in both modes (photo-viewer convention),
-// but uses the theme's card color at low opacity for its glass buttons so it
-// still shifts subtly with theme.
 function createStyles(colors, isDark) {
   return StyleSheet.create({
-    sectionContainer: { paddingVertical: 32, backgroundColor: colors.background, width: '100%' },
+    sectionContainer: { paddingVertical: 28, backgroundColor: colors.background, width: '100%' },
     paddedBlock: { paddingHorizontal: 20 },
-    headerWrapper: { marginBottom: 20 },
-    pressedState: { opacity: 0.85 },
-    headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-    headerTitleGroup: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, minWidth: 0 },
+    headerWrapper: { marginBottom: 18 },
+    pressedState: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+    headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    headerTitleGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     liveIndicator: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.text },
-    headerTitle: { fontSize: 10, fontWeight: '900', color: colors.text, letterSpacing: 3.5, flexShrink: 1 },
-    exploreAction: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
-    exploreText: { fontSize: 11, fontWeight: '700', color: colors.text, letterSpacing: 0.5, textTransform: 'uppercase' },
-    headerRule: { height: 1.5, backgroundColor: colors.text, width: '100%' },
-    fullBleedHero: { width: '100%', backgroundColor: colors.card, overflow: 'hidden' },
-    textBridge: { paddingVertical: 32, alignItems: 'center' },
-    quoteBody: { fontSize: 13, color: colors.textSecondary, lineHeight: 20, fontWeight: '500', letterSpacing: 0.2, textAlign: 'center', maxWidth: '80%', textTransform: 'uppercase' },
-    fullBleedSplitTrack: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
-    splitFrame: { width: '48.8%', backgroundColor: colors.card, overflow: 'hidden' },
+    headerTitle: { fontSize: 11, fontWeight: '900', color: colors.text, letterSpacing: 3 },
+    explorePill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, overflow: 'hidden', borderWidth: 0.5, borderColor: colors.border },
+    exploreText: { fontSize: 10, fontWeight: '700', color: colors.text, letterSpacing: 0.8, textTransform: 'uppercase' },
+    gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12, width: '100%' },
+    gridCard: { width: '48.8%', borderRadius: 16, overflow: 'hidden', backgroundColor: colors.card, borderWidth: 0.5, borderColor: colors.border },
     image: { width: '100%', height: '100%' },
-    bottomBorder: { height: 1, backgroundColor: colors.border, marginTop: 32 },
     errorContainer: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
     errorText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
-    lightboxContainer: { flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
+    lightboxContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
     lightboxTopBar: { position: 'absolute', top: 50, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', zIndex: 30 },
-    glassButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.2)', justifyContent: 'center', alignItems: 'center' },
-    lightboxSlide: { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 },
+    glassButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255, 255, 255, 0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.3)' },
+    lightboxSlide: { justifyContent: 'center', alignItems: 'center' },
     lightboxFooter: { position: 'absolute', bottom: 45, width: '100%', alignItems: 'center', zIndex: 20 },
-    glassFooterPill: { backgroundColor: 'rgba(0, 0, 0, 0.6)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20 },
-    lightboxCounterText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' }
+    glassFooterPill: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, overflow: 'hidden', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.2)' },
+    lightboxCounterText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 1 }
   });
 }

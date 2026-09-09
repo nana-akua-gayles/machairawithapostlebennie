@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../../context/ThemeContext";
 import { AppText } from "../../components/AppText";
-import { ArrowLeft, ArrowUpRight, RefreshCw } from "lucide-react-native";
+import { ChevronLeft, ArrowUpRight, RefreshCw } from "lucide-react-native";
 import { supabase } from "../../config/supabaseClient";
 
 const PADDING = 24;
@@ -204,7 +204,7 @@ export const AllArticlesScreen = () => {
         accessibilityLabel="Go back"
         style={({ pressed }) => [styles.backButton, { top: insets.top + 12, backgroundColor: colors.card, borderColor: colors.border, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
       >
-        <ArrowLeft size={16} color={colors.text} />
+        <ChevronLeft size={16} color={colors.text} />
       </Pressable>
 
       {loading ? (

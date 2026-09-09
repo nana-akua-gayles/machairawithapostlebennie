@@ -8,12 +8,11 @@ import { useTheme } from '../../../context/ThemeContext';
 
 const { height } = Dimensions.get('window');
 const ModalOverlay = Platform.OS === 'ios' ? FullWindowOverlay : React.Fragment;
-const BRAND_RED = '#dc2626';
 
 const UTILITIES_ITEMS = [
-  { id: 'notes', label: 'My Notes', icon: Notebook, color: '#4b5563', bgColor: '#f3f4f6' },
-  { id: 'support', label: 'FAQ', icon: MessageSquareWarning, color: '#4b5563', bgColor: '#f3f4f6' },
-  { id: 'share', label: 'Share App', icon: Share2, color: '#4b5563', bgColor: '#f3f4f6' },
+  { id: 'notes', label: 'My Notes', icon: Notebook, useNeutral: true },
+  { id: 'support', label: 'FAQ', icon: MessageSquareWarning, useNeutral: true },
+  { id: 'share', label: 'Share App', icon: Share2, useNeutral: true },
 ];
 
 const CustomActionSheet = ({ visible, title, description, options = [], onClose, avatarUri, busy = false }) => {
@@ -29,7 +28,7 @@ const CustomActionSheet = ({ visible, title, description, options = [], onClose,
             {(avatarUri || title || description) && (
               <View style={styles.actionSheetHeaderBlock}>
                 {avatarUri && (
-                  <View style={[styles.actionSheetAvatarRing, { borderColor: BRAND_RED }]}>
+                  <View style={[styles.actionSheetAvatarRing, { borderColor: colors.primary }]}>
                     <Image source={{ uri: avatarUri }} style={styles.actionSheetAvatarImage} />
                   </View>
                 )}
@@ -45,18 +44,18 @@ const CustomActionSheet = ({ visible, title, description, options = [], onClose,
                   disabled={busy}
                   style={({ pressed }) => [
                     styles.actionSheetButtonRow,
-                    { backgroundColor: isDark ? '#262626' : '#f1f5f9' },
-                    opt.style === 'destructive' && { backgroundColor: isDark ? '#451a03' : '#fef2f2' },
+                    { backgroundColor: colors.surfaceMuted },
+                    opt.isDangerous && { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
                     opt.style === 'cancel' && { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
                     pressed && !busy && styles.rowPressedStyle,
                     busy && styles.actionSheetButtonDisabled,
                   ]}
                   onPress={() => { if (!busy) opt.onPress?.(); }}
                 >
-                  {busy && opt.style === 'destructive' ? (
-                    <ActivityIndicator size="small" color={BRAND_RED} />
+                  {busy && opt.isDangerous ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
                   ) : (
-                    <AppText type="bold" style={[styles.actionSheetButtonLabel, { color: colors.text }, opt.style === 'destructive' && styles.textDestructiveColor, opt.style === 'cancel' && { color: colors.textSecondary }]}>
+                    <AppText type="bold" style={[styles.actionSheetButtonLabel, { color: colors.text }, opt.isDangerous && { color: colors.primary }, opt.style === 'cancel' && { color: colors.textSecondary }]}>
                       {opt.text}
                     </AppText>
                   )}
@@ -71,24 +70,24 @@ const CustomActionSheet = ({ visible, title, description, options = [], onClose,
 };
 
 const ProfileCard = ({ user }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   return (
     <View style={[styles.mainIdentityCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.avatarRingOuterEdge}>
         {user?.photo ? (
           <Image source={{ uri: user.photo }} style={styles.largeProfileAvatar} />
         ) : (
-          <View style={[styles.largeFallbackAvatarCircle, { backgroundColor: isDark ? '#262626' : '#fee2e2' }]}>
-            <User color={BRAND_RED} size={24} strokeWidth={2.5} />
+          <View style={[styles.largeFallbackAvatarCircle, { backgroundColor: colors.surfaceActive }]}>
+            <User color={colors.primary} size={24} strokeWidth={2.5} />
           </View>
         )}
       </View>
       <View style={styles.identityTextDetails}>
         <View style={styles.nameBadgeInlineContainer}>
           <AppText type="bold" style={[styles.textLight, { color: colors.text }]}>{user?.name ?? 'Your Account'}</AppText>
-          <View style={[styles.activeIndicatorPill, { backgroundColor: isDark ? '#064e3b' : '#e6f4ea', borderColor: '#34a853' }]}>
+          <View style={[styles.activeIndicatorPill, { backgroundColor: '#e6f4ea', borderColor: '#34a853' }]}>
             <View style={styles.livePulseDot} />
-            <AppText type="bold" style={[styles.activePillText, { color: isDark ? '#6ee7b7' : '#137333' }]}>ACTIVE</AppText>
+            <AppText type="bold" style={[styles.activePillText, { color: '#137333' }]}>ACTIVE</AppText>
           </View>
         </View>
         <AppText type="regular" numberOfLines={1} style={[styles.subLight, { color: colors.textSecondary }]}>{user?.email}</AppText>
@@ -98,36 +97,45 @@ const ProfileCard = ({ user }) => {
 };
 
 const MetricMatrix = ({ onNavigate, stats }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+  const streak = stats?.current_streak ?? stats?.streakCount ?? 0;
+  const saved = stats?.saved_count ?? stats?.savedCount ?? 0;
+
   return (
-    <View style={[styles.engagementStatsMatrixRow, { backgroundColor: isDark ? '#1a1a1a' : '#fafafa', borderColor: colors.border }]}>
+    <View style={[styles.engagementStatsMatrixRow, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
       <Pressable style={({ pressed }) => [styles.statItemSquare, pressed && styles.rowPressedStyle]} onPress={() => onNavigate?.('streaks')}>
-        <Flame color={BRAND_RED} size={18} strokeWidth={2.2} />
-        <AppText type="bold" style={[styles.statPrimaryValue, { color: colors.text }]}>{stats?.streakCount ?? 0} Days</AppText>
+        <Flame color={colors.text} size={18} strokeWidth={2.2} />
+        <AppText type="bold" style={[styles.statPrimaryValue, { color: colors.text }]}>
+          {streak} {streak === 1 ? 'Day' : 'Days'}
+        </AppText>
         <AppText type="semiBold" style={[styles.statSecondaryLabel, { color: colors.textSecondary }]}>Study Streak</AppText>
       </Pressable>
       <View style={[styles.verticalBorderDividerLine, { backgroundColor: colors.border }]} />
       <Pressable style={({ pressed }) => [styles.statItemSquare, pressed && styles.rowPressedStyle]} onPress={() => onNavigate?.('saved')}>
-        <BookmarkCheck color={BRAND_RED} size={18} strokeWidth={2.2} />
-        <AppText type="bold" style={[styles.statPrimaryValue, { color: colors.text }]}>{stats?.savedCount ?? 0}</AppText>
-        <AppText type="semiBold" style={[styles.statSecondaryLabel, { color: colors.textSecondary }]}>Saved Episodes</AppText>
+        <BookmarkCheck color={colors.text} size={18} strokeWidth={2.2} />
+        <AppText type="bold" style={[styles.statPrimaryValue, { color: colors.text }]}>
+          {saved} {saved === 1 ? 'Episode' : 'Episodes'}
+        </AppText>
+        <AppText type="semiBold" style={[styles.statSecondaryLabel, { color: colors.textSecondary }]}>Saved</AppText>
       </Pressable>
     </View>
   );
 };
 
-const NavMenuOption = ({ icon: Icon, color, bgColor, label, description, onPress, style, isLockedGroup, rightElement }) => {
-  const { colors, isDark } = useTheme();
+const NavMenuOption = ({ icon: Icon, useNeutral, isDestructive, label, description, onPress, style, isLockedGroup, rightElement }) => {
+  const { colors } = useTheme();
+  const iconColor = isLockedGroup ? colors.textSecondary : (isDestructive ? colors.primary : colors.textSecondary);
+  const iconBg = isLockedGroup ? colors.surfaceMuted : (isDestructive ? colors.card : colors.surfaceMuted);
   return (
     <Pressable style={({ pressed }) => [styles.menuItemRow, { borderBottomColor: colors.border }, style, pressed && !rightElement && styles.rowPressedStyle]} onPress={onPress} disabled={!!rightElement}>
-      <View style={[styles.menuItemIconWrapper, { backgroundColor: isLockedGroup ? (isDark ? '#262626' : '#f1f5f9') : bgColor }]}>
-        <Icon color={isLockedGroup ? '#cbd5e1' : color} size={17} strokeWidth={2.2} />
+      <View style={[styles.menuItemIconWrapper, { backgroundColor: iconBg }]}>
+        <Icon color={iconColor} size={17} strokeWidth={2.2} />
       </View>
       <View style={styles.menuItemTextStack}>
-        <AppText type="semiBold" style={[styles.menuItemTitleText, { color: colors.text }, isLockedGroup && styles.loggedOutMenuLabel]}>{label}</AppText>
+        <AppText type="semiBold" style={[styles.menuItemTitleText, { color: colors.text }, isLockedGroup && { color: colors.textSecondary }]}>{label}</AppText>
         {description && <AppText type="regular" style={[styles.menuItemDescText, { color: colors.textSecondary }]}>{description}</AppText>}
       </View>
-      {rightElement ? rightElement : isLockedGroup ? <Lock color="#cbd5e1" size={14} /> : <ChevronRight color={colors.textSecondary} size={16} strokeWidth={2.2} />}
+      {rightElement ? rightElement : isLockedGroup ? <Lock color={colors.textSecondary} size={14} /> : <ChevronRight color={colors.textSecondary} size={16} strokeWidth={2.2} />}
     </Pressable>
   );
 };
@@ -144,7 +152,7 @@ export const LoggedInProfileModalSheet = ({
   onNavigateToMenuOption,
 }) => {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const [alertConfig, setAlertConfig] = useState({ visible: false, title: '', description: '', options: [], avatarUri: undefined });
   const [deleting, setDeleting] = useState(false);
   const pendingAlertTimeoutRef = useRef(null);
@@ -195,7 +203,7 @@ export const LoggedInProfileModalSheet = ({
         title: 'Permanently Delete Account?',
         description: 'Are you sure you want to permanently erase your account and all associated data?',
         options: [
-          { text: 'Delete Permanently', style: 'destructive', onPress: handleDeleteConfirmed },
+          { text: 'Delete Permanently', style: 'destructive', isDangerous: true, onPress: handleDeleteConfirmed },
           { text: 'Cancel', style: 'cancel', onPress: closeAlert },
         ],
       });
@@ -203,7 +211,6 @@ export const LoggedInProfileModalSheet = ({
       onClose?.();
       onNavigateToSupport ? onNavigateToSupport() : onNavigateToMenuOption?.('support');
     } else {
-      // Handles 'saved', 'streaks', 'notes', and all other standard options
       onClose?.();
       onNavigateToMenuOption?.(id);
     }
@@ -211,10 +218,10 @@ export const LoggedInProfileModalSheet = ({
 
   const modalListItems = useMemo(() => {
     const list = [...UTILITIES_ITEMS];
-    list.push({ id: 'logout', label: 'Logout', icon: LogOut, color: BRAND_RED, bgColor: isDark ? 'rgba(220, 38, 38, 0.15)' : 'rgba(220, 38, 38, 0.06)' });
-    list.push({ id: 'delete_account', label: 'Delete Account', icon: UserX, color: '#ef4444', bgColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.04)' });
+    list.push({ id: 'logout', label: 'Logout', icon: LogOut });
+    list.push({ id: 'delete_account', label: 'Delete Account', icon: UserX, isDestructive: true });
     return list;
-  }, [isDark]);
+  }, []);
 
   return (
     <>
@@ -226,7 +233,7 @@ export const LoggedInProfileModalSheet = ({
               <View style={[styles.sheetIndicatorBar, { backgroundColor: colors.border }]} />
               <View style={styles.sheetHeaderControls}>
                 <AppText type="black" style={[styles.sheetTitleLabel, { color: colors.text }]}>Account Settings</AppText>
-                <Pressable style={[styles.closeCircleWrapper, { backgroundColor: isDark ? '#262626' : '#f1f5f9' }]} onPress={onClose}><X color={colors.textSecondary} size={14} strokeWidth={2.5} /></Pressable>
+                <Pressable style={[styles.closeCircleWrapper, { backgroundColor: colors.surfaceMuted }]} onPress={onClose}><X color={colors.textSecondary} size={14} strokeWidth={2.5} /></Pressable>
               </View>
               <FlatList
                 data={modalListItems}
@@ -238,9 +245,9 @@ export const LoggedInProfileModalSheet = ({
                     <View style={styles.modalInnerHeaderWrapper}>
                       <ProfileCard user={user} />
                     </View>
-                    <Pressable style={({ pressed }) => [styles.inlineProfileButton, { backgroundColor: isDark ? '#262626' : '#fef2f2', borderColor: isDark ? '#404040' : '#fee2e2' }, pressed && styles.rowPressedStyle]} onPress={() => { onClose?.(); onNavigateToMenuOption?.('profile_details'); }}>
-                      <UserCheck color={BRAND_RED} size={16} strokeWidth={2.5} />
-                      <AppText type="bold" style={styles.inlineProfileButtonText}>View Profile</AppText>
+                    <Pressable style={({ pressed }) => [styles.inlineProfileButton, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }, pressed && styles.rowPressedStyle]} onPress={() => { onClose?.(); onNavigateToMenuOption?.('profile_details'); }}>
+                      <UserCheck color={colors.text} size={16} strokeWidth={2.5} />
+                      <AppText type="bold" style={[styles.inlineProfileButtonText, { color: colors.text }]}>View Profile</AppText>
                     </Pressable>
                     <MetricMatrix onNavigate={handleItemPress} stats={stats} />
                     <View style={styles.groupHeaderLabelWrapper}><AppText type="bold" style={[styles.groupSectionHeaderText, { color: colors.textSecondary }]}>Account</AppText></View>
@@ -279,7 +286,7 @@ const styles = StyleSheet.create({
   activePillText: { fontSize: 8.5, letterSpacing: 0.6, fontWeight: '800' },
   subLight: { fontSize: 13, marginTop: 4 },
   inlineProfileButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 11, borderRadius: 24, marginHorizontal: 20, marginBottom: 20, borderWidth: 1 },
-  inlineProfileButtonText: { color: BRAND_RED, marginLeft: 6, fontSize: 13.5 },
+  inlineProfileButtonText: { marginLeft: 6, fontSize: 13.5 },
   engagementStatsMatrixRow: { flexDirection: 'row', borderWidth: 1, borderRadius: 16, marginHorizontal: 20, paddingVertical: 14, marginBottom: 24 },
   statItemSquare: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   statPrimaryValue: { fontSize: 15, marginTop: 4 },
@@ -291,7 +298,6 @@ const styles = StyleSheet.create({
   menuItemIconWrapper: { width: 34, height: 34, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   menuItemTextStack: { flex: 1, marginRight: 8 },
   menuItemTitleText: { fontSize: 14.5 },
-  loggedOutMenuLabel: { color: '#cbd5e1' },
   menuItemDescText: { fontSize: 12, marginTop: 2 },
   actionSheetOverlayScrim: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'center', alignItems: 'center' },
   actionSheetSurfaceContainer: { width: '85%', maxWidth: 380, borderRadius: 24, paddingHorizontal: 24, paddingTop: 28, paddingBottom: 24, borderWidth: 1 },
@@ -304,7 +310,6 @@ const styles = StyleSheet.create({
   actionSheetButtonRow: { width: '100%', paddingVertical: 14, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   actionSheetButtonDisabled: { opacity: 0.7 },
   actionSheetButtonLabel: { fontSize: 14 },
-  textDestructiveColor: { color: BRAND_RED },
   modalOverlayScrim: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)', justifyContent: 'flex-end' },
   dismissalAbsoluteBackdrop: { ...StyleSheet.absoluteFillObject },
   bottomSheetCardContainer: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: height * 0.85 },

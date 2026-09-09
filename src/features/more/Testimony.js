@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from '
 import { StyleSheet, View, ScrollView, Pressable, FlatList, Modal, ActivityIndicator, TextInput, KeyboardAvoidingView,
   Platform, TouchableWithoutFeedback, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Heart, MessageSquare, PenSquare, User, EyeOff, ChevronLeft, X, Send, CornerDownRight, AlertCircle } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { AppText } from '../../components/AppText';
@@ -256,7 +256,7 @@ export const Testimony = ({ onBack }) => {
           <View style={styles.authorMetaStack}>
             <View style={styles.authorBadgeRow}>
               <AppText type="semiBold" style={[styles.authorNameText, { color: isDarkMode ? '#ffffff' : '#09090b' }]}>{item.is_anonymous ? 'Anonymous' : (item.profiles?.name || 'Member')}</AppText>
-              <View style={[styles.categoryBadge, { backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.15)' : '#fef2f2' }]}><AppText type="bold" style={[styles.categoryBadgeText, { color: isDarkMode ? '#f87171' : '#991b1b' }]}>{item.category}</AppText></View>
+              <View style={[styles.categoryBadge, { backgroundColor: isDarkMode ? 'rgba(22, 163, 74, 0.15)' : '#f0fdf4' }]}><AppText type="bold" style={[styles.categoryBadgeText, { color: isDarkMode ? '#4ade80' : '#166534' }]}>{item.category}</AppText></View>
             </View>
             <AppText type="regular" style={styles.timeAgoText}>{timeAgo(item.created_at)}</AppText>
           </View>

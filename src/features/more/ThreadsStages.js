@@ -4,7 +4,7 @@ import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Lock, ChevronLeft, Check, AlertTriangle, Compass } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from '../../config/supabaseClient';
 import { useTheme } from '../../context/ThemeContext';
 

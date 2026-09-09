@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../../config/supabaseClient';
 import { AppText } from '../../../components/AppText';
 import { useTheme } from '../../../context/ThemeContext';
-import { Search, ArrowLeft, BookOpen, X, AlertCircle } from 'lucide-react-native';
+import { Search, ChevronLeft, BookOpen, X, AlertCircle } from 'lucide-react-native';
 import episodeBg from '../../../../assets/images/episodeBg.jpg';
 
 function sanitizeForOr(input) {
@@ -282,7 +282,7 @@ export function SearchScreen({ navigation, onSelectEpisode }) {
           onPress={() => navigation.goBack()}
           hitSlop={8}
         >
-          <ArrowLeft color={colors.text} size={20} />
+          <ChevronLeft color={colors.text} size={20} />
         </Pressable>
 
         <View style={[styles.searchBarContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>

@@ -14,9 +14,12 @@ if (!supabaseUrl || !serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 
-const CHUNK_SIZE = 1000;
-const CHUNK_OVERLAP = 150;
+const CHUNK_SIZE = 1000;   // target characters per chunk
+const CHUNK_OVERLAP = 150; // characters repeated at the start of the next chunk, for continuity
 
+// Splits on sentence boundaries and greedily packs sentences into chunks of
+// roughly CHUNK_SIZE characters, carrying the tail of one chunk into the
+// next so a sentence split across chunk edges isn't lost from both.
 function chunkText(text) {
     const sentences = text
         .replace(/\s+/g, ' ')
@@ -40,8 +43,10 @@ function chunkText(text) {
 }
 
 async function runBatch() {
-    console.log("Checking for devotionals needing chunks...");
+    console.log("Loading embedding model (Supabase/gte-small)...");
+    const extractor = await pipeline('feature-extraction', 'Supabase/gte-small');
 
+    console.log("Fetching devotionals not yet chunked...");
     const { data: devotionals, error } = await supabase
         .from('devotionals')
         .select('id, pure_content')
@@ -53,10 +58,11 @@ async function runBatch() {
     }
 
     if (!devotionals || devotionals.length === 0) {
-        console.log("No devotionals with content found. Done.");
+        console.log("No devotionals found. Done.");
         return;
     }
 
+    // Skip episodes that already have chunks (so this script is safe to re-run).
     const { data: existingChunkRows, error: existingErr } = await supabase
         .from('devotional_chunks')
         .select('devotional_id');
@@ -67,15 +73,7 @@ async function runBatch() {
     const alreadyChunked = new Set((existingChunkRows || []).map(r => r.devotional_id));
 
     const toProcess = devotionals.filter(d => !alreadyChunked.has(d.id) && d.pure_content.trim() !== '');
-
-    // Nothing new — exit before paying the cost of loading the model.
-    if (toProcess.length === 0) {
-        console.log("No new devotionals to embed. Done.");
-        return;
-    }
-
-    console.log(`${toProcess.length} new devotional(s) found. Loading embedding model (Supabase/gte-small)...`);
-    const extractor = await pipeline('feature-extraction', 'Supabase/gte-small');
+    console.log(`${toProcess.length} devotionals need chunking (${alreadyChunked.size} already done).`);
 
     for (const item of toProcess) {
         try {
@@ -107,7 +105,7 @@ async function runBatch() {
             console.error(`Error on ID ${item.id}:`, err);
         }
     }
-    console.log("Batch processing completed!");
+    console.log("Batch processing completed! Remember to run: analyze devotional_chunks;");
 }
 
 runBatch();

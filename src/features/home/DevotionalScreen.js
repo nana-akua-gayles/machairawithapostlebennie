@@ -3,7 +3,7 @@ import { View, ScrollView, StyleSheet, Pressable, Share, ActivityIndicator, Imag
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { ArrowLeft, Bookmark, Share2, Type, RotateCcw, Compass, BookOpen, Download, Hand, HandHelping, MessageSquare, Send, Trash2, User as UserIcon, NotebookPen, Headphones, Pause } from 'lucide-react-native';
+import { ChevronLeft, Bookmark, Share2, Type, RotateCcw, Compass, BookOpen, Download, Hand, HandHelping, MessageSquare, Send, Trash2, User as UserIcon, NotebookPen, Headphones, Pause } from 'lucide-react-native';
 import { AppText } from '../../components/AppText';
 import { useTheme } from '../../context/ThemeContext';
 import { useAudio } from '../../context/AudioContext';
@@ -643,7 +643,7 @@ if (!data) {
           style={({ pressed }) => [styles.iconBtn, pressed && styles.pressedOpacity]}
           hitSlop={12}
         >
-          <ArrowLeft color={colors.text} size={22} />
+          <ChevronLeft color={colors.text} size={22} />
         </Pressable>
 
         <View style={styles.headerRightActions}>

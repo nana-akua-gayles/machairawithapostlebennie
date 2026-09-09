@@ -1,7 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { supabase } from '../config/supabaseClient';
 
 const AudioContext = createContext(null);
+
+const STREAK_LISTEN_SECONDS_THRESHOLD = 30;
+const STREAK_LISTEN_PERCENT_THRESHOLD = 0.8;
 
 export const AudioProvider = ({ children }) => {
   const [currentTrack, setCurrentTrack] = useState(null);
@@ -10,27 +14,14 @@ export const AudioProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  // Drives whether the mini player is visible: true once something has been
-  // loaded, false only once the user explicitly stops playback entirely.
   const [isMiniPlayerVisible, setIsMiniPlayerVisible] = useState(false);
-  // Tracks the currently focused top-level route name, fed by
-  // NavigationContainer's onReady/onStateChange in App.jsx. MiniAudioPlayer
-  // lives outside any Navigator (it's a sibling of the root Stack.Navigator,
-  // both inside NavigationContainer), so it can't use useNavigationState —
-  // that hook requires an actual Navigator ancestor, not just
-  // NavigationContainer. This is the workaround: track focus centrally and
-  // read it from context instead.
   const [focusedRouteName, setFocusedRouteName] = useState(null);
 
-  // Live player instance, exposed via state (not just a ref) so consumers
-  // that read `player` are guaranteed a re-render when it changes — a ref
-  // alone doesn't trigger renders, which risks a consumer holding a stale/
-  // released instance if it doesn't also happen to depend on other state
-  // that changes at the same time.
   const [player, setPlayer] = useState(null);
   const playerRef = useRef(null);
   const statusListenerRef = useRef(null);
   const isMountedRef = useRef(true);
+  const hasCountedAudioStreakRef = useRef(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -50,14 +41,49 @@ export const AudioProvider = ({ children }) => {
       try {
         playerRef.current.release();
       } catch (releaseError) {
-        // Player may already be released (e.g. double-invocation from a
-        // fast track switch) — safe to ignore.
         console.error('Player release error (likely already released):', releaseError);
       }
       playerRef.current = null;
     }
     setPlayer(null);
   };
+
+  const recordGlobalAudioStreak = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const today = new Date().toISOString().split('T')[0];
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('last_devotional_date')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) throw profileError;
+
+      if (profileData?.last_devotional_date === today) {
+        return;
+      }
+
+      await supabase.rpc('update_user_streak', { user_id: user.id });
+    } catch (streakErr) {
+      console.error('Error updating global audio streak:', streakErr);
+    }
+  };
+
+  useEffect(() => {
+    if (hasCountedAudioStreakRef.current || !currentTrack) return;
+
+    const metThresholdBySeconds = currentTime >= STREAK_LISTEN_SECONDS_THRESHOLD;
+    const metThresholdByPercent = duration > 0 && (currentTime / duration) >= STREAK_LISTEN_PERCENT_THRESHOLD;
+
+    if (metThresholdBySeconds || metThresholdByPercent) {
+      hasCountedAudioStreakRef.current = true;
+      recordGlobalAudioStreak();
+    }
+  }, [currentTime, duration, currentTrack]);
 
   const attachStatusListener = (player) => {
     const listener = player.addListener('playbackStatusUpdate', (status) => {
@@ -95,9 +121,7 @@ export const AudioProvider = ({ children }) => {
     try {
       setIsLoading(true);
       setError(null);
-
-      // Release the previous player (and its listener) before creating the
-      // next one — avoids leaking listeners/instances on track switches.
+      hasCountedAudioStreakRef.current = false;
       releaseCurrentPlayer();
 
       await setAudioModeAsync({
@@ -118,8 +142,6 @@ export const AudioProvider = ({ children }) => {
       setIsMiniPlayerVisible(true);
 
       newPlayer.play();
-      // isPlaying/isLoading are driven by the status listener above, not
-      // set optimistically here, so they reflect what actually happened.
     } catch (playError) {
       console.error('Error playing audio:', playError);
       setError('Unable to load this audio. Check your connection and try again.');
@@ -160,9 +182,6 @@ export const AudioProvider = ({ children }) => {
     playerRef.current.seekTo(duration ? Math.min(target, duration) : target);
   }, [currentTime, duration]);
 
-  // Fully stops playback and tears down the player — used when the user
-  // explicitly dismisses the mini player, not when they navigate away from
-  // the full screen (that case should keep playing).
   const stopAudio = useCallback(() => {
     releaseCurrentPlayer();
     setCurrentTrack(null);
@@ -172,29 +191,13 @@ export const AudioProvider = ({ children }) => {
     setCurrentTime(0);
     setDuration(0);
     setIsMiniPlayerVisible(false);
+    hasCountedAudioStreakRef.current = false;
   }, []);
 
   const value = {
-    // Read-only from the consumer's perspective — control it via the
-    // methods below, not by calling player methods directly (keeps status
-    // state and actual playback state from drifting apart).
-    player,
-    currentTrack,
-    isPlaying,
-    isLoading,
-    error,
-    currentTime,
-    duration,
-    isMiniPlayerVisible,
-    focusedRouteName,
-    setFocusedRouteName,
-    playAudio,
-    pauseAudio,
-    resumeAudio,
-    togglePlayPause,
-    seekTo,
-    skipBy,
-    stopAudio,
+    player, currentTrack, isPlaying, isLoading, error, currentTime, duration,
+    isMiniPlayerVisible, focusedRouteName, setFocusedRouteName,
+    playAudio, pauseAudio, resumeAudio, togglePlayPause, seekTo, skipBy, stopAudio,
   };
 
   return <AudioContext.Provider value={value}>{children}</AudioContext.Provider>;

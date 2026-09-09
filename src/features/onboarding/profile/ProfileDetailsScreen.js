@@ -1,8 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Image, Pressable, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
-import { ChevronLeft, User, Phone, MapPin, Landmark, GitBranch, Users, Edit3 } from 'lucide-react-native';
+import { useFocusEffect } from "@react-navigation/native";
+import { ChevronLeft, User, Phone, MapPin, Landmark, GitBranch, Edit3 } from 'lucide-react-native';
 import { AppText } from '../../../components/AppText';
 import { useTheme } from '../../../context/ThemeContext';
 import { supabase } from '../../../config/supabaseClient';
@@ -103,7 +103,7 @@ export const ProfileDetailsScreen = ({ route, navigation }) => {
               </View>
             )}
           </View>
-          <AppText type="black" style={[styles.userName, { color: colors.text }]}>{user?.name ?? 'Anonymous User'}</AppText>
+          <AppText type="bold" style={[styles.userName, { color: colors.text }]}>{user?.name ?? 'Anonymous User'}</AppText>
           <AppText type="regular" style={[styles.userEmail, { color: colors.textSecondary }]}>{user?.email ?? 'No email linked'}</AppText>
         </View>
 
@@ -128,7 +128,6 @@ export const ProfileDetailsScreen = ({ route, navigation }) => {
           <View style={[styles.cardSurface, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <ProfileFieldRow icon={Landmark} label="Church" value={user?.church} />
             <ProfileFieldRow icon={GitBranch} label="Branch" value={user?.branch} />
-            <ProfileFieldRow icon={Users} label="Cell Name" value={user?.cell_name} />
           </View>
         </View>
 

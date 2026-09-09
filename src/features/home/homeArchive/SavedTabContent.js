@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../../config/supabaseClient';
 import { AppText } from '../../../components/AppText';
 import { useTheme } from '../../../context/ThemeContext';
-import { Bookmark, Heart, BookOpen, ArrowLeft } from 'lucide-react-native';
+import { Bookmark, Heart, BookOpen, ChevronLeft } from 'lucide-react-native';
 import episodeBg from '../../../../assets/images/episodeBg.jpg';
 
 
@@ -28,7 +28,6 @@ export function SavedScreen({ user, navigation, onSelectEpisode }) {
       }
 
       try {
-        // 1. Get all saved episode numbers for this user
         console.log(`Querying saved_devotionals for user_id: ${user.id}`);
         const { data: savedRows, error: savedError } = await supabase
           .from('saved_devotionals')
@@ -185,7 +184,7 @@ export function SavedScreen({ user, navigation, onSelectEpisode }) {
           onPress={() => navigation.goBack()}
           hitSlop={8}
         >
-          <ArrowLeft color={colors.text} size={20} />
+          <ChevronLeft color={colors.text} size={20} />
         </Pressable>
         <AppText type="bold" style={[styles.headerTitle, { color: colors.text }]}>Your Machaira Shelf</AppText>
         <View style={styles.headerSpacer} />

@@ -6,11 +6,15 @@ import { useTheme } from '../../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 const RED_ACCENT = '#B91C1C';
+// NOTE: dark theme should set colors.card = '#FFFFFF' and colors.text (used inside
+// white cards) = '#000000' so boxed content stays readable on the white card fill.
 const WHITE = '#ffffff';
+const BLACK = '#000000';
 
 export const PartnerScreen = ({ navigation }) => {
   const { colors, isDark: isDarkMode } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const accentColor = isDarkMode ? WHITE : RED_ACCENT;
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, { toValue: 0.95, useNativeDriver: true }).start();
@@ -27,22 +31,26 @@ export const PartnerScreen = ({ navigation }) => {
       {/* Top Navigation Bar */}
       <View style={styles.navBar}>
         <TouchableOpacity 
-          style={[styles.backButton, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)' }]} 
+          style={[styles.backButton, { 
+            backgroundColor: isDarkMode ? BLACK : WHITE,
+            borderWidth: 1,
+            borderColor: isDarkMode ? WHITE : BLACK,
+          }]} 
           onPress={() => navigation.goBack()}
         >
-          <ChevronLeft color={isDarkMode ? WHITE : '#000000'} size={32} />
+          <ChevronLeft color={isDarkMode ? WHITE : BLACK} size={32} />
         </TouchableOpacity>
       </View>
       
       <View style={styles.heroSection}>
         <View style={[styles.iconOuterRing, { 
-          backgroundColor: colors.card, 
-          borderColor: RED_ACCENT,
-          shadowColor: RED_ACCENT 
+          backgroundColor: isDarkMode ? WHITE : colors.card, 
+          borderColor: accentColor,
+          shadowColor: accentColor 
         }]}>
-          <Handshake color={RED_ACCENT} size={48} strokeWidth={1.5} />
+          <Handshake color={isDarkMode ? BLACK : accentColor} size={48} strokeWidth={1.5} />
         </View>
-        <AppText type="bold" style={[styles.mainTitle, { color: RED_ACCENT }]}>
+        <AppText type="bold" style={[styles.mainTitle, { color: accentColor }]}>
           Partner with us
         </AppText>
       </View>
@@ -52,19 +60,19 @@ export const PartnerScreen = ({ navigation }) => {
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.devotionalBox, { 
-          backgroundColor: colors.card, 
-          borderColor: RED_ACCENT,
-          shadowColor: RED_ACCENT 
+          backgroundColor: isDarkMode ? BLACK : colors.card, 
+          borderColor: accentColor,
+          shadowColor: accentColor 
         }]}>
-          <AppText type="bold" style={[styles.devotionalTitle, { color: RED_ACCENT }]}>
+          <AppText type="bold" style={[styles.devotionalTitle, { color: accentColor }]}>
             The Kingdom Advances Through our Faithfulness
           </AppText>
-          <AppText style={[styles.devotionalText, { color: colors.text }]}>
+          <AppText style={[styles.devotionalText, { color: isDarkMode ? WHITE : colors.text }]}>
             Partnership is not merely a transaction, but a joining of faith. 
             As the Apostle Paul wrote to the Philippians, you become partakers of the grace given to this house. 
             When you support the proclamation of the uncompromised Word, you share in the spiritual reward of every life transformed, every yoke broken, and every soul anchored in Truth.
           </AppText>
-          <Sparkles color={RED_ACCENT} size={24} style={styles.devotionalIcon} />
+          <Sparkles color={accentColor} size={24} style={styles.devotionalIcon} />
         </View>
 
         <View style={styles.ctaSection}>

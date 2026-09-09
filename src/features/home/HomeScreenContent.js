@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { View, Pressable, ScrollView, StyleSheet, Image, Platform, useWindowDimensions } from 'react-native';
+import { View, Pressable, ScrollView, StyleSheet, Image, Platform, useWindowDimensions, RefreshControl, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from "../../config/supabaseClient";
 import YoutubePlayer from 'react-native-youtube-iframe';
@@ -20,17 +20,9 @@ import { useNotifications } from './useNotifications';
 const MAX_FONT_SCALE = 1.3;
 const TABS = ['Past', 'Related', 'Saved', 'Search'];
 
-// TODO: move to a shared constants file if other screens need this
 const DEVOTIONAL_SPEAKER = "Apostle Benjamin Nana Amissah Ansah";
-
-// Used only if the featured_video row is missing/unreachable, so the
-// section never renders empty.
 const FALLBACK_VIDEO_ID = "9Rx_B4htGn0";
 
-// Pulls the 11-char YouTube video ID out of whatever URL shape someone
-// pastes into Supabase — watch URLs, youtu.be short links, embed URLs,
-// or a bare ID typed in directly all need to resolve correctly since a
-// non-technical person will be the one editing this.
 function extractYoutubeId(input) {
   if (!input) return null;
   const trimmed = input.trim();
@@ -117,6 +109,7 @@ const FallbackTabContent = React.memo(({ tabName }) => {
 
 export default function MachairaHome({
   user,
+  stats,
   navigation,
   onNavigateToSupport,
   profileVisible,
@@ -135,14 +128,12 @@ export default function MachairaHome({
   const TAB_BAR_HEIGHT = 64;
 
   const isGuest = !user;
-
   const userDisplayName = useMemo(() => {
     if (isGuest) return 'Guest';
     return user?.name || 'User Account';
   }, [isGuest, user?.name]);
 
   const userAvatarUrl = isGuest ? null : user?.photo;
-
   const handleProfilePress = useCallback(() => setProfileVisible(true), [setProfileVisible]);
 
   const [latestDevotional, setLatestDevotional] = useState({
@@ -153,66 +144,62 @@ export default function MachairaHome({
     image: episodeBg,
     audio_url: '',
   });
+  
   const [devotionalStatus, setDevotionalStatus] = useState('loading');
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchLatestDevotional = useCallback(async () => {
+  const fetchHomeData = useCallback(async () => {
     setDevotionalStatus('loading');
     try {
-      const { data, error } = await supabase
+      const { data: devotionalData, error: devotionalError } = await supabase
         .from('devotionals')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (error) {
-        console.error('Error fetching latest devotional:', error);
-        setDevotionalStatus('error');
-        return;
-      }
+      if (devotionalError) throw devotionalError;
 
-      if (!data) {
+      if (!devotionalData) {
         setDevotionalStatus('empty');
-        return;
+      } else {
+        setLatestDevotional({
+          episodeId: devotionalData.id?.toString() || '217',
+          title: devotionalData.title,
+          date: devotionalData.created_at
+            ? new Date(devotionalData.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+            : 'Recent Episode',
+          createdAt: devotionalData.created_at || null,
+          image: devotionalData.flyer_url ? { uri: devotionalData.flyer_url } : episodeBg,
+          audio_url: devotionalData.audio_url || '',
+        });
+        setDevotionalStatus('ready');
       }
-
-      setLatestDevotional({
-        episodeId: data.id?.toString() || '217',
-        title: data.title,
-        date: data.created_at
-          ? new Date(data.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-          : 'Recent Episode',
-        createdAt: data.created_at || null,
-        image: data.flyer_url ? { uri: data.flyer_url } : episodeBg,
-        audio_url: data.audio_url || '',
-      });
-      setDevotionalStatus('ready');
     } catch (err) {
-      console.error('Error fetching latest devotional:', err);
+      console.error('Error fetching home data:', err);
       setDevotionalStatus('error');
     }
   }, []);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchHomeData();
+    setRefreshing(false);
+  }, [fetchHomeData]);
+
   useEffect(() => {
-    let isMounted = true;
-
-    (async () => {
-      if (!isMounted) return;
-      await fetchLatestDevotional();
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [fetchLatestDevotional]);
-
-  const { playAudio } = useAudio();
+    fetchHomeData();
+  }, [fetchHomeData]);
 
   const handleListenNow = useCallback(() => {
     if (devotionalStatus !== 'ready') return;
-    if (!latestDevotional.audio_url) return;
+    
+    if (!latestDevotional.audio_url) {
+      Alert.alert("Audio Unavailable", "There is no audio attached to this devotional yet.");
+      return;
+    }
 
     navigation.navigate("FullDevotionalAudio", {
       devotional: {
@@ -227,32 +214,33 @@ export default function MachairaHome({
   }, [devotionalStatus, latestDevotional, navigation]);
 
   const navLockRef = useRef(false);
-  const handleDevotionalNavigation = useCallback(() => {
+  
+  const handleDevotionalNavigation = useCallback(async () => {
     if (navLockRef.current || devotionalStatus !== 'ready') return;
     navLockRef.current = true;
+
+    if (!isGuest && user?.id) {
+      try {
+        await supabase.rpc('update_user_streak', { p_user_id: user.id });
+      } catch (err) {
+        console.error('Unexpected error updating streak:', err);
+      }
+    }
+
     navigation.navigate('Devotional', {
       episodeId: latestDevotional.episodeId,
       title: latestDevotional.title,
       date: latestDevotional.date,
     });
+    
     setTimeout(() => { navLockRef.current = false; }, 800);
-  }, [navigation, latestDevotional, devotionalStatus]);
-
-  const handleSupportNavigation = useCallback(() => {
-    if (onNavigateToSupport) {
-      onNavigateToSupport();
-    } else {
-      navigation.navigate('SupportFeedback');
-    }
-  }, [onNavigateToSupport, navigation]);
+  }, [navigation, latestDevotional, devotionalStatus, isGuest, user?.id]);
 
   const [testimonyData] = useState([]);
-
   const [featuredVideoId, setFeaturedVideoId] = useState(FALLBACK_VIDEO_ID);
 
   useEffect(() => {
     let isMounted = true;
-
     async function fetchFeaturedVideo() {
       try {
         const { data, error } = await supabase
@@ -268,7 +256,6 @@ export default function MachairaHome({
         if (extractedId) setFeaturedVideoId(extractedId);
       } catch (err) {
         console.error('Error fetching featured video:', err);
-        // Keep FALLBACK_VIDEO_ID on failure — section still renders.
       }
     }
 
@@ -281,6 +268,8 @@ export default function MachairaHome({
     devotionalStatus === 'empty' ? 'No devotionals available yet — check back soon' :
     devotionalStatus === 'error' ? "Couldn't load the latest devotional" :
     latestDevotional.title;
+
+  const hasAudio = Boolean(latestDevotional.audio_url);
 
   return (
     <View style={[styles.flexOne, { backgroundColor: colors.background }]}>
@@ -306,7 +295,7 @@ export default function MachairaHome({
           </View>
         </Pressable>
 
-        <Pressable style={[styles.subscribeBtn, { backgroundColor: colors.border }]} onPress={() => navigation.navigate('Notifications')} accessibilityRole="button" accessibilityLabel={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}>
+        <Pressable style={[styles.subscribeBtn, { backgroundColor: colors.border }]} onPress={() => navigation.navigate('Notifications')} accessibilityRole="button">
           <Bell color={colors.textSecondary} size={21} strokeWidth={2.5} style={styles.bellIconSpacing} />
           {unreadCount > 0 && (
             <View style={[styles.notificationBadge, { backgroundColor: colors.primary }]}>
@@ -318,7 +307,18 @@ export default function MachairaHome({
         </Pressable>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + 20 }]}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + 20 }]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
         <View style={[styles.heroWrapper, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.heroImageContainer}>
             <Image
@@ -354,15 +354,12 @@ export default function MachairaHome({
             <View style={[styles.rowCenter, styles.actionRow]}>
               <Pressable
                 style={[styles.listenBtn, { backgroundColor: colors.border, opacity: devotionalStatus === 'ready' ? 1 : 0.5 }]}
-                onPress={devotionalStatus === 'error' ? fetchLatestDevotional : handleListenNow}
+                onPress={devotionalStatus === 'error' ? fetchHomeData : handleListenNow}
                 disabled={devotionalStatus === 'loading' || devotionalStatus === 'empty'}
-                accessibilityRole="button"
-                accessibilityLabel={devotionalStatus === 'error' ? 'Retry loading episode' : 'Listen to episode'}
-                accessibilityState={{ disabled: devotionalStatus === 'loading' || devotionalStatus === 'empty' }}
               >
-                <Play color={colors.text} size={16} fill={colors.text} style={styles.playIconSpacing} />
+                <Play color={colors.text} size={16} fill={hasAudio ? colors.text : 'transparent'} style={styles.playIconSpacing} />
                 <AppText type="semiBold" numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.listenText, { color: colors.text }]}>
-                  {devotionalStatus === 'error' ? 'Retry' : 'Listen Now'}
+                  {devotionalStatus === 'error' ? 'Retry' : hasAudio ? 'Listen Now' : 'No Audio'}
                 </AppText>
               </Pressable>
 
@@ -370,9 +367,6 @@ export default function MachairaHome({
                 style={[styles.readBtn, { backgroundColor: colors.primary, opacity: devotionalStatus === 'ready' ? 1 : 0.5 }]}
                 onPress={handleDevotionalNavigation}
                 disabled={devotionalStatus !== 'ready'}
-                accessibilityRole="button"
-                accessibilityLabel="Read episode text"
-                accessibilityState={{ disabled: devotionalStatus !== 'ready' }}
               >
                 <BookText color={colors.onPrimary} size={16} style={styles.bookIconSpacing} />
                 <AppText type="semiBold" numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.readText, { color: colors.onPrimary }]}>
@@ -410,7 +404,7 @@ export default function MachairaHome({
         </View>
 
         {activeTab === 'Past' ? (
-          <PastTabContent onSelectEpisode={(item) => { navigation.navigate('Devotional', { episodeId: item.id.toString(), title: item.title, date: item.date }); }} />
+          <PastTabContent userId={user?.id} onSelectEpisode={(item) => { navigation.navigate('Devotional', { episodeId: item.id.toString(), title: item.title, date: item.date }); }} />
         ) : activeTab === 'Related' ? (
           <RelatedTabContent onSelectEpisode={(item) => { navigation.navigate('Devotional', { episodeId: item.id.toString(), title: item.title, date: item.date, related: item.related }); }} />
         ) : activeTab === 'Search' ? (
@@ -443,9 +437,9 @@ export default function MachairaHome({
       </ScrollView>
 
       {isGuest ? (
-        <GuestProfileModalSheet visible={profileVisible} onClose={() => setProfileVisible(false)} onTriggerLogin={onTriggerLogin} onNavigateToSupport={handleSupportNavigation} onNavigateToMenuOption={onNavigateToMenuOption} />
+        <GuestProfileModalSheet visible={profileVisible} onClose={() => setProfileVisible(false)} onTriggerLogin={onTriggerLogin} onNavigateToSupport={onNavigateToSupport} onNavigateToMenuOption={onNavigateToMenuOption} />
       ) : (
-        <LoggedInProfileModalSheet visible={profileVisible} onClose={() => setProfileVisible(false)} user={user} onLogout={onLogout} onChangeAccount={onChangeAccount} onDeleteAccount={onDeleteAccount} onNavigateToSupport={handleSupportNavigation} onNavigateToMenuOption={onNavigateToMenuOption} />
+        <LoggedInProfileModalSheet visible={profileVisible} onClose={() => setProfileVisible(false)} user={user} stats={stats} onLogout={onLogout} onChangeAccount={onChangeAccount} onDeleteAccount={onDeleteAccount} onNavigateToSupport={onNavigateToSupport} onNavigateToMenuOption={onNavigateToMenuOption} />
       )}
     </View>
   );
@@ -464,7 +458,7 @@ const styles = StyleSheet.create({
   greetingMicro: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6 },
   profileName: { fontSize: 15, marginTop: -1 },
   subscribeBtn: { flexDirection: 'row', alignItems: 'center', padding: 11, borderRadius: 20, position: 'relative', flexShrink: 0 },
-  heroWrapper: { borderRadius: 16, overflow: 'hidden', marginBottom: 28, borderWidth: 1, ...Platform.select({ ios: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 16 }, android: { elevation: 3 } }) },
+  heroWrapper: { borderRadius: 16, overflow: 'hidden', marginBottom: 28, borderWidth: 1 },
   heroImageContainer: { width: '100%', height: 175, position: 'relative' },
   heroImage: { width: '100%', height: 175 },
   imageHidden: { opacity: 0 },

@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppText } from '../../components/AppText';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { Audio } from 'expo-audio';
+import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -29,40 +29,27 @@ export default function WordSearchScreen({ route, navigation }) {
   const gridRef = useRef(null);
   const gridLayoutRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
   const appState = useRef(AppState.currentState);
-  const backgroundMusic = useRef(null);
 
   const storageKey = `active_word_search_stage_${stageNumber}`;
 
+  // useAudioPlayer (expo-audio) replaces the deprecated expo-av Audio API,
+  // which was undefined in this project's installed SDK version and
+  // crashed on setAudioModeAsync. Must be called at the top level, not
+  // inside the effect below.
+  const player = useAudioPlayer(require('../../../assets/audio/gameS3.mp3'));
+
   // Background Music Setup & Playback Handling
   useEffect(() => {
-    let isMounted = true;
     let cancelled = false;
 
     async function setupAndPlayMusic() {
       try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-          shouldDuckAndroid: true,
-        });
-
-        const { sound } = await Audio.Sound.createAsync(
-          require('../../../assets/audio/gameS3.mp3'),
-          { isLooping: true, volume: 0.1 }
-        );
-
-        if (cancelled) {
-          await sound.unloadAsync();
-          return;
-        }
-
-        if (isMounted) {
-          backgroundMusic.current = sound;
-          await sound.playAsync();
-          setIsMusicPlaying(true);
-        } else {
-          await sound.unloadAsync();
-        }
+        await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false, interruptionMode: 'duckOthers' });
+        if (cancelled) return;
+        player.loop = true;
+        player.volume = 0.1;
+        player.play();
+        setIsMusicPlaying(true);
       } catch (error) {
         console.warn('Failed to load or play background music:', error);
       }
@@ -71,24 +58,19 @@ export default function WordSearchScreen({ route, navigation }) {
     setupAndPlayMusic();
 
     return () => {
-      isMounted = false;
       cancelled = true;
-      if (backgroundMusic.current) {
-        backgroundMusic.current.unloadAsync();
-        backgroundMusic.current = null;
-      }
+      try { player.pause(); } catch (_e) {}
     };
-  }, []);
+  }, [player]);
 
-  const toggleBackgroundMusic = async () => {
-    if (!backgroundMusic.current) return;
+  const toggleBackgroundMusic = () => {
     try {
       Haptics.selectionAsync();
       if (isMusicPlaying) {
-        await backgroundMusic.current.pauseAsync();
+        player.pause();
         setIsMusicPlaying(false);
       } else {
-        await backgroundMusic.current.playAsync();
+        player.play();
         setIsMusicPlaying(true);
       }
     } catch (err) {

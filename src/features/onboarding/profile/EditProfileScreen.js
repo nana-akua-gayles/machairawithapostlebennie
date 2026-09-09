@@ -28,7 +28,6 @@ export const EditProfileScreen = ({ route, navigation }) => {
   const [location, setLocation] = useState(user?.location ?? '');
   const [church, setChurch] = useState(user?.church ?? '');
   const [branch, setBranch] = useState(user?.branch ?? '');
-  const [cellName, setCellName] = useState(user?.cell_name ?? '');
   const [loading, setLoading] = useState(false);
 
   const handleSaveChanges = async () => {
@@ -41,7 +40,6 @@ export const EditProfileScreen = ({ route, navigation }) => {
           location: location.trim() || null,
           church: church.trim() || null,
           branch: branch.trim() || null,
-          cell_name: cellName.trim() || null,
           updated_at: new Date(),
         })
         .eq('id', user.id);
@@ -101,7 +99,7 @@ export const EditProfileScreen = ({ route, navigation }) => {
                 <Lock color="#ffffff" size={10} strokeWidth={3} />
               </View>
             </View>
-            <AppText type="black" style={[styles.userName, { color: colors.text }]}>{user?.name ?? 'User'}</AppText>
+            <AppText type="bold" style={[styles.userName, { color: colors.text }]}>{user?.name ?? 'User'}</AppText>
             <AppText type="regular" style={[styles.userEmail, { color: colors.textSecondary }]}>{user?.email ?? ''}</AppText>
             <AppText type="regular" style={styles.lockedNotice}>Profile picture, name and email cannot be changed here.</AppText>
           </View>
@@ -145,16 +143,6 @@ export const EditProfileScreen = ({ route, navigation }) => {
               value={branch} 
               onChangeText={setBranch} 
               placeholder="Enter branch name" 
-              placeholderTextColor="#9ca3af" 
-              returnKeyType="next"
-            />
-
-            <AppText type="bold" style={[styles.inputLabel, { color: colors.textSecondary }]}>Cell Name</AppText>
-            <TextInput 
-              style={[styles.textInput, { borderColor: colors.border, color: colors.text, backgroundColor: isDark ? '#1a1a1a' : '#f8fafc' }]} 
-              value={cellName} 
-              onChangeText={setCellName} 
-              placeholder="Enter cell name" 
               placeholderTextColor="#9ca3af" 
               returnKeyType="done"
             />

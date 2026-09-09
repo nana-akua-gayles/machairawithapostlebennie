@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation } from "@react-navigation/native";
 import { View, StyleSheet, ScrollView, Pressable, Alert, Dimensions, Platform } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { User, Handshake, Settings, Globe2, Heart, BookOpenCheck, Quote, MicVocal, Lock } from 'lucide-react-native';
@@ -29,13 +29,13 @@ const QUOTES = [
   "Every communication of God is to take us on a journey of understanding. God's questions lead men into light."
 ];
 
-const QuoteItem = memo(({ item, pageWidth }) => (
+const QuoteItem = memo(({ item, pageWidth, accentColor }) => (
   <View style={[styles.quoteWrapper, { width: pageWidth }]}>
-    <Quote color="#f65ca1" size={20} style={styles.quoteIcon} />
-    <AppText style={styles.quoteText} maxFontSizeMultiplier={1.2}>
+    <Quote color={accentColor} size={20} style={styles.quoteIcon} />
+    <AppText style={[styles.quoteText, { color: accentColor }]} maxFontSizeMultiplier={1.2}>
       {item}
     </AppText>
-    <AppText type="medium" style={styles.authorName} maxFontSizeMultiplier={1.2}>
+    <AppText type="medium" style={[styles.authorName, { color: accentColor }]} maxFontSizeMultiplier={1.2}>
       ~ Apostle Bennie
     </AppText>
   </View>
@@ -55,7 +55,8 @@ const TOOLS = [
 
 export const MoreScreen = ({ user, onRequireAuth }) => {
   const navigation = useNavigation();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const accentColor = isDark ? colors.text : colors.primary;
   const scrollRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [windowWidth, setWindowWidth] = useState(Dimensions.get('window').width);
@@ -112,7 +113,7 @@ export const MoreScreen = ({ user, onRequireAuth }) => {
           }}
         >
           {QUOTES.map((quote, index) => (
-            <QuoteItem key={`quote_${index}`} item={quote} pageWidth={windowWidth} />
+            <QuoteItem key={`quote_${index}`} item={quote} pageWidth={windowWidth} accentColor={accentColor} />
           ))}
         </ScrollView>
       </View>
@@ -122,17 +123,18 @@ export const MoreScreen = ({ user, onRequireAuth }) => {
           {TOOLS.map((tool) => {
             const IconComponent = tool.icon;
             const locked = tool.requiresAuth && !user;
+            const toolColor = isDark ? colors.text : tool.color;
             return (
               <Pressable
                 key={tool.id}
                 style={[styles.cardSmall, { backgroundColor: colors.card, borderColor: colors.border }, locked && styles.cardLocked]}
                 onPress={() => handleCardPress(tool)}
               >
-                <View style={[styles.iconWrapper, { backgroundColor: `${tool.color}15` }]}>
-                  <IconComponent color={tool.color} size={24} />
+                <View style={[styles.iconWrapper, { backgroundColor: isDark ? colors.surfaceMuted : `${tool.color}15` }]}>
+                  <IconComponent color={toolColor} size={24} />
                   {locked && (
-                    <View style={styles.lockBadge}>
-                      <Lock color="#FFFFFF" size={10} />
+                    <View style={[styles.lockBadge, { backgroundColor: colors.textSecondary, borderColor: colors.card }]}>
+                      <Lock color={colors.onPrimary} size={10} />
                     </View>
                   )}
                 </View>
@@ -158,13 +160,13 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 22, marginBottom: 15, paddingLeft: 20 },
   quoteWrapper: { paddingHorizontal: 30, alignItems: 'center', justifyContent: 'center' },
   quoteIcon: { marginBottom: 8, opacity: 0.6 },
-  quoteText: { fontSize: 14, color: '#f65ca1', textAlign: 'center', lineHeight: 20 },
-  authorName: { fontSize: 11, color: '#f65ca1', marginTop: 8, opacity: 0.8 },
+  quoteText: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  authorName: { fontSize: 11, marginTop: 8, opacity: 0.8 },
   gallery: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   cardSmall: { width: '48%', minHeight: 135, borderRadius: 16, padding: 14, borderWidth: 1, marginBottom: 14 },
   cardLocked: { opacity: 0.6 },
   iconWrapper: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  lockBadge: { position: 'absolute', bottom: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: '#64748B', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#FFFFFF' },
+  lockBadge: { position: 'absolute', bottom: -4, right: -4, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
   cardLabel: { fontSize: 13 },
   cardSub: { fontSize: 11, marginTop: 4, lineHeight: 15 }
 });

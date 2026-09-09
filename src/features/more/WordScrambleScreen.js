@@ -5,7 +5,7 @@ import { supabase } from '../../config/supabaseClient';
 import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { Audio } from 'expo-audio';
+import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { useTheme } from '../../context/ThemeContext';
 
 const RUBRIC = '#C81E3A';
@@ -41,41 +41,36 @@ export default function WordScrambleScreen({ route, navigation }) {
   const timerRef = useRef(null);
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
-  const backgroundMusic = useRef(null);
+
+  // useAudioPlayer (expo-audio) replaces the deprecated expo-av Audio API,
+  // which was undefined in this project's installed SDK version and
+  // crashed on setAudioModeAsync.
+  const player = useAudioPlayer(require('../../../assets/audio/gameS2.mp3'));
 
   useEffect(() => {
     mountedRef.current = true;
-    let isMounted = true;
     let cancelled = false;
 
-    const playBackgroundMusic = async () => {
+    const setupAndPlay = async () => {
       try {
-        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: false, shouldDuckAndroid: true });
-        const { sound } = await Audio.Sound.createAsync(require('../../../assets/audio/gameS2.mp3'), { isLooping: true, volume: 0.1 });
-        if (cancelled) { sound.unloadAsync().catch(() => {}); return; }
-        if (isMounted) {
-          backgroundMusic.current = sound;
-          await sound.playAsync();
-        } else {
-          await sound.unloadAsync();
-        }
+        await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false, interruptionMode: 'duckOthers' });
+        if (cancelled) return;
+        player.loop = true;
+        player.volume = 0.1;
+        player.play();
       } catch (error) {
-        console.error('Error loading background music:', error);
+        console.error('Error setting up background music:', error);
       }
     };
 
-    playBackgroundMusic();
+    setupAndPlay();
 
     return () => {
       mountedRef.current = false;
-      isMounted = false;
       cancelled = true;
-      if (backgroundMusic.current) {
-        backgroundMusic.current.unloadAsync().catch(() => {});
-        backgroundMusic.current = null;
-      }
+      try { player.pause(); } catch (_e) {}
     };
-  }, []);
+  }, [player]);
 
   const startWord = useCallback(async (pId, wordIndex) => {
     const myRequestId = ++requestIdRef.current;
@@ -457,7 +452,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   saveWarningText: { fontSize: 11.5, color: RUBRIC, flexShrink: 1 },
   stageCompleteScoreBadge: { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#faf7f7', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 24, alignItems: 'center', width: '100%', marginBottom: 22, borderWidth: 1.5, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#f1e4e7' },
   stageCompleteScoreLabel: { fontSize: 11, color: colors.textSecondary, letterSpacing: 1.5, marginBottom: 4 },
-  stageCompleteScoreValue: { fontSize: 25, color: RUBRIC },
+  stageCompleteScoreValue: { fontSize: 28, color: RUBRIC },
   stageCompleteButton: { flexDirection: 'row', backgroundColor: RUBRIC, paddingVertical: 15, borderRadius: 16, alignItems: 'center', justifyContent: 'center', width: '100%' },
   stageCompleteButtonText: { color: '#ffffff', fontSize: 15 },
 });

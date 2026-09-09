@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { View, StyleSheet, FlatList, Pressable, Image, useWindowDimensions, ActivityIndicator, RefreshControl } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, useWindowDimensions, ActivityIndicator, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../../context/ThemeContext";
 import { AppText } from "../../components/AppText";
-import { ArrowLeft, Heart, ShoppingBag, RefreshCw } from "lucide-react-native";
+import { ChevronLeft, Heart, ShoppingBag, RefreshCw } from "lucide-react-native";
 import { supabase } from "../../config/supabaseClient";
+import { Image } from 'expo-image';
 
 const GRID_PADDING = 20;
 const GRID_GAP = 12;
@@ -108,18 +109,22 @@ export const AllStoreScreen = () => {
         accessibilityLabel={`${item.title}, ${formatPrice(item.price)}`}
         style={({ pressed }) => [styles.card, { width: columnWidth, backgroundColor: colors.card, borderColor: colors.border, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
       >
-        <View style={[styles.imageWrapper, { height: imageHeight, backgroundColor: colors.border }]}>
-          {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.image} resizeMode="cover" /> : <View style={[styles.image, styles.imageFallback]}><ShoppingBag size={22} color={colors.textSecondary} /></View>}
-          <Pressable
-            onPress={() => toggleFavorite(item.id)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel={isFavorite ? `Remove ${item.title} from wishlist` : `Add ${item.title} to wishlist`}
-            style={[styles.heartButton, { backgroundColor: colors.card }]}
-          >
-            <Heart size={12} color={isFavorite ? colors.primary : colors.textSecondary} fill={isFavorite ? colors.primary : "transparent"} />
-          </Pressable>
-        </View>
+        {item.imageUrl ? (
+          <Image source={{ uri: item.imageUrl }} style={[styles.image, { height: imageHeight }]} contentFit="cover" />
+        ) : (
+          <View style={[styles.image, styles.imageFallback, { height: imageHeight, backgroundColor: colors.border }]}>
+            <ShoppingBag size={22} color={colors.textSecondary} />
+          </View>
+        )}
+        <Pressable
+          onPress={() => toggleFavorite(item.id)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel={isFavorite ? `Remove ${item.title} from wishlist` : `Add ${item.title} to wishlist`}
+          style={[styles.heartButton, { backgroundColor: colors.card }]}
+        >
+          <Heart size={12} color={isFavorite ? colors.primary : colors.textSecondary} fill={isFavorite ? colors.primary : "transparent"} />
+        </Pressable>
 
         <View style={styles.priceTag}>
           <AppText type="bold" style={styles.priceText}>{formatPrice(item.price)}</AppText>
@@ -159,15 +164,13 @@ export const AllStoreScreen = () => {
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <ArrowLeft size={19} color={colors.text} />
+          <ChevronLeft size={19} color={colors.text} />
         </Pressable>
         <AppText type="bold" style={[styles.headerTitle, { color: colors.text }]}>Store</AppText>
         <View style={[styles.countPill, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <AppText type="semiBold" style={[styles.countText, { color: colors.textSecondary }]}>{storeItems.length}</AppText>
         </View>
       </View>
-
-      <AppText style={[styles.subtitle, { color: colors.textSecondary }]}>Curated goods, just for you</AppText>
 
       {loading ? (
         <View style={styles.loaderContainer}>
@@ -197,23 +200,21 @@ export const AllStoreScreen = () => {
 
 const createStyles = (colors) => StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 14 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 14, paddingBottom: 17 },
   backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   headerTitle: { fontSize: 19, letterSpacing: -0.3 },
   countPill: { minWidth: 32, paddingHorizontal: 10, height: 28, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   countText: { fontSize: 12 },
-  subtitle: { fontSize: 13, paddingHorizontal: 20, marginTop: 6, marginBottom: 18 },
   loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   gridContainer: { paddingHorizontal: GRID_PADDING, paddingBottom: 40 },
   gridContainerEmpty: { flexGrow: 1 },
   columnWrapper: { justifyContent: "space-between", marginBottom: GRID_GAP },
-  card: { padding: 8, borderRadius: 20, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
-  imageWrapper: { width: "100%", borderRadius: 14, overflow: "hidden", position: "relative" },
-  image: { width: "100%", height: "100%" },
-  imageFallback: { alignItems: "center", justifyContent: "center" },
-  heartButton: { position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  priceTag: { alignSelf: "flex-start", backgroundColor: colors.primary, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, marginTop: -13, marginLeft: 5, shadowColor: colors.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 3 },
-  priceText: { color: colors.onPrimary, fontSize: 11, letterSpacing: -0.1 },
+  card: { padding: 8, borderRadius: 20, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3, position: 'relative' },
+  image: { width: "100%", borderRadius: 14 },
+  imageFallback: { alignItems: "center", justifyContent: "center", borderRadius: 14 },
+  heartButton: { position: "absolute", top: 14, right: 14, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", zIndex: 2 },
+  priceTag: { alignSelf: "flex-start", backgroundColor: colors.primary, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, marginTop: -13, marginLeft: 5, shadowColor: colors.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 3, zIndex: 2 },
+  priceText: { color: colors.onPrimary, fontSize: 11, letterSpacing: -0.1, fontWeight: '700' },
   cardTitle: { fontSize: 12, lineHeight: 16, marginTop: 8, paddingHorizontal: 2 },
   footerLoader: { paddingVertical: 24, alignItems: "center" },
   emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 40 },

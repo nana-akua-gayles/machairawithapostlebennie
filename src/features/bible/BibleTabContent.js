@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, StyleSheet, ScrollView, ActivityIndicator, Pressable, Share, Keyboard, Platform } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from "@react-navigation/native";
 import * as Clipboard from 'expo-clipboard';
 import { ChevronLeft, ChevronRight, Bookmark, FileText, Trash2, ChevronDown, Star } from 'lucide-react-native';
 import { POPULAR_TRANSLATIONS, BIBLE_BOOKS } from './Bibledata';

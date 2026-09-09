@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Pressable, StyleSheet, Animated, PanResponder, Dimensions } from 'react-native';
 import { Play, Pause, X, Volume2 } from 'lucide-react-native';
-import { useNavigation } from '@react-navigation/native';
+import { navigationRef } from "../../../App";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '../../components/AppText';
 import { useAudio } from '../../context/AudioContext';
@@ -16,7 +16,6 @@ const BAR_HEIGHT_ESTIMATE = 62;
 export function MiniAudioPlayer() {
   const { colors, isDark } = useTheme();
   const { currentTrack, isPlaying, pauseAudio, resumeAudio, stopAudio, focusedRouteName } = useAudio();
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   const isOnFullPlayerScreen = focusedRouteName === 'FullDevotionalAudio';
@@ -84,8 +83,10 @@ export function MiniAudioPlayer() {
   };
 
   const handleExpandPlayer = () => {
-    navigation.navigate('FullDevotionalAudio');
-  };
+  if (navigationRef.isReady()) {
+    navigationRef.navigate('FullDevotionalAudio');
+  }
+};
 
   return (
     <Animated.View

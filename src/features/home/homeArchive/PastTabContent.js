@@ -140,7 +140,7 @@ export const PastTabContent = ({ onSelectEpisode, userId }) => {
               minimumFontScale={0.75}
               style={[styles.streakTitle, { color: colors.text }]}
             >
-              {loadingStreak ? 'Loading streak...' : `${streakCount}-Day Devotional Streak`}
+              {loadingStreak ? 'Loading streak...' : `${streakCount} - Day Devotional Streak`}
             </AppText>
             <AppText
               type="regular"
